@@ -1,0 +1,17 @@
+[project]
+name = "weather-intelligence-api"
+version = "0.1.0"
+description = "FastAPI weather intelligence contract and scientific integration interfaces"
+requires-python = ">=3.11"
+dependencies = ["fastapi>=0.116,<1", "uvicorn[standard]>=0.35,<1", "pydantic>=2.11,<3", "numpy>=2.2,<3"]
+
+[project.optional-dependencies]
+weather = ["xarray>=2025.6", "dask[array]>=2025.5", "metpy>=1.7", "cfgrib>=0.9.15", "eccodes>=2.42"]
+geospatial = ["geopandas>=1.1", "shapely>=2.1", "rasterio>=1.4"]
+ai = ["torch>=2.7", "torch-geometric>=2.6"]
+test = ["pytest>=8.4", "httpx>=0.28"]
+all = ["xarray>=2025.6", "dask[array]>=2025.5", "metpy>=1.7", "cfgrib>=0.9.15", "eccodes>=2.42", "geopandas>=1.1", "shapely>=2.1", "rasterio>=1.4", "torch>=2.7", "torch-geometric>=2.6", "pytest>=8.4", "httpx>=0.28"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]

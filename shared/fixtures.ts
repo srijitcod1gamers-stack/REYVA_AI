@@ -1,0 +1,188 @@
+import type { Coordinate, DownscalingResult, Infrastructure, Provenance, WeatherEvent } from './types';
+import { trajectoryFor } from './simulation';
+
+export const DEMO_RUN = '2026-09-27T00:00:00Z';
+export const REPLAY_RUN = '2020-05-14T00:00:00Z';
+export const provenance: Provenance = {
+  kind: 'simulated',
+  source: 'SIH synthetic demonstration dataset',
+  model: 'Global ensemble · 23 synthetic members',
+  run: DEMO_RUN,
+  disclaimer: 'Simulated demonstration data. Not an official forecast or validated AI output.',
+};
+const seeds: Omit<WeatherEvent, 'trajectory' | 'provenance' | 'updatedAt'>[] = [
+  {
+    id: 'WX-024',
+    type: 'cyclone',
+    name: 'Cyclonic system',
+    region: 'Bay of Bengal',
+    severity: 'SEVERE',
+    confidence: 87,
+    status: 'Intensifying',
+    trend: 'intensifying',
+    leadTime: 42,
+    centroid: [87.1, 18.8],
+  },
+  {
+    id: 'WX-025',
+    type: 'rainfall',
+    name: 'Extreme rainfall',
+    region: 'Western Ghats',
+    severity: 'HIGH',
+    confidence: 81,
+    status: 'Developing',
+    trend: 'intensifying',
+    leadTime: 30,
+    centroid: [74.5, 14.6],
+  },
+  {
+    id: 'WX-026',
+    type: 'heat',
+    name: 'Heat anomaly',
+    region: 'Rajasthan · Gujarat',
+    severity: 'MODERATE',
+    confidence: 64,
+    status: 'Persistent',
+    trend: 'stable',
+    leadTime: 66,
+    centroid: [72.8, 26.1],
+  },
+  {
+    id: 'WX-027',
+    type: 'cold',
+    name: 'Cold wave',
+    region: 'Western Himalayas',
+    severity: 'MODERATE',
+    confidence: 58,
+    status: 'Weakening',
+    trend: 'weakening',
+    leadTime: 90,
+    centroid: [77.2, 33.2],
+  },
+];
+export const events: WeatherEvent[] = seeds.map((e) => ({
+  ...e,
+  trajectory: trajectoryFor(e.centroid, e.type),
+  provenance,
+  updatedAt: DEMO_RUN,
+}));
+export const places: { name: string; region: string; coordinates: Coordinate }[] = [
+  { name: 'Kolkata', region: 'West Bengal, India', coordinates: [88.36, 22.57] },
+  { name: 'Bhubaneswar', region: 'Odisha, India', coordinates: [85.82, 20.3] },
+  { name: 'Puri', region: 'Odisha, India', coordinates: [85.83, 19.81] },
+  { name: 'Visakhapatnam', region: 'Andhra Pradesh, India', coordinates: [83.3, 17.69] },
+  { name: 'Sagar Island', region: 'West Bengal, India', coordinates: [88.08, 21.65] },
+  { name: 'Digha', region: 'West Bengal, India', coordinates: [87.55, 21.63] },
+  { name: 'Chennai', region: 'Tamil Nadu, India', coordinates: [80.27, 13.08] },
+  { name: 'Mumbai', region: 'Maharashtra, India', coordinates: [72.88, 19.08] },
+  { name: 'New Delhi', region: 'Delhi, India', coordinates: [77.21, 28.61] },
+  { name: 'Jaipur', region: 'Rajasthan, India', coordinates: [75.79, 26.91] },
+  { name: 'Dhaka', region: 'Bangladesh', coordinates: [90.41, 23.81] },
+  { name: 'Bengaluru', region: 'Karnataka, India', coordinates: [77.59, 12.97] },
+  { name: 'Hyderabad', region: 'Telangana, India', coordinates: [78.49, 17.39] },
+];
+export const infrastructure: Infrastructure[] = Array.from({ length: 34 }, (_, i) => ({
+  id: `DEMO-asset-${i}`,
+  name: `${i < 3 ? 'District hospital' : i < 17 ? 'Settlement' : 'School'} ${String(i + 1).padStart(2, '0')} (simulated)`,
+  type: i < 3 ? 'hospital' : i < 17 ? 'settlement' : 'school',
+  coordinates: [85.5 + (Math.sin(i * 12.3) + 1) * 1.7, 19.7 + (Math.cos(i * 4.2) + 1) * 1.5],
+  population: i < 17 ? 1800 + i * 321 : undefined,
+}));
+export const downscaling: DownscalingResult[] = [
+  {
+    id: 'original',
+    label: 'Original forecast',
+    resolution: 12,
+    peakRainfall: 141,
+    wind: 112,
+    variance: 22.4,
+    percentile99: 134,
+    rmse: 28.6,
+    mae: 21.3,
+    extremeError: 25,
+    similarity: 0.72,
+    kind: 'simulated',
+  },
+  {
+    id: 'interpolation',
+    label: 'Bilinear interpolation',
+    resolution: 5,
+    peakRainfall: 140,
+    wind: 111,
+    variance: 20.1,
+    percentile99: 132,
+    rmse: 27.9,
+    mae: 20.8,
+    extremeError: 25.5,
+    similarity: 0.75,
+    kind: 'interpolated',
+  },
+  {
+    id: 'ai',
+    label: 'AI downscaled',
+    resolution: 5,
+    peakRainfall: 181,
+    wind: 138,
+    variance: 39.7,
+    percentile99: 173,
+    rmse: 12.4,
+    mae: 8.7,
+    extremeError: 3.7,
+    similarity: 0.94,
+    kind: 'ai-generated',
+  },
+];
+export const physicsMetrics = [
+  { label: 'Moisture consistency', value: 96 },
+  { label: 'Pressure–wind balance', value: 92 },
+  { label: 'Spatial gradients', value: 95 },
+  { label: 'Precipitation continuity', value: 93 },
+  { label: 'Topographic consistency', value: 94 },
+];
+export const pipelineSteps = [
+  {
+    name: 'Numerical weather prediction',
+    detail: 'Ensemble GRIB / NetCDF fields',
+    tech: 'NCMRWF · IMDAA',
+  },
+  {
+    name: 'Weather preprocessing',
+    detail: 'Normalize, chunk, and derive fields',
+    tech: 'Xarray · Dask · MetPy · cfgrib',
+  },
+  {
+    name: 'Graph construction',
+    detail: 'Connect spatial cells and neighbors',
+    tech: 'PyTorch Geometric',
+  },
+  {
+    name: 'Graph neural network',
+    detail: 'Learn spatiotemporal representations',
+    tech: 'PyTorch · GNN',
+  },
+  {
+    name: 'Extreme anomaly discovery',
+    detail: 'Score deviations from climatology',
+    tech: 'Anomaly engine',
+  },
+  { name: 'Spatiotemporal tracking', detail: 'Associate events between frames', tech: 'Graph tracker' },
+  { name: 'Ensemble intelligence', detail: 'Agreement, probability, and spread', tech: 'NumPy' },
+  { name: 'Region cropping', detail: 'Extract the evolving event region', tech: 'GeoPandas · Rasterio' },
+  {
+    name: 'Conditional diffusion',
+    detail: 'Generate approximately 5 km fields',
+    tech: 'PyTorch · Diffusion',
+  },
+  { name: 'Physics validation', detail: 'Assess consistency, not accuracy', tech: 'MetPy · Validation' },
+  {
+    name: 'Exposure & impact engine',
+    detail: 'Intersect hazards with exposed assets',
+    tech: 'Shapely · GeoPandas',
+  },
+  { name: 'Risk intelligence', detail: 'Location-specific probabilistic risk', tech: 'FastAPI' },
+  {
+    name: 'Dashboard + alert API',
+    detail: 'Deliver forecasts, events, and tiles',
+    tech: 'Workers · R2 · D1',
+  },
+];
