@@ -2,3 +2,8 @@
 ML_API_ORIGIN=http://127.0.0.1:8000
 ML_API_KEY=replace-with-random-internal-key
 ADMIN_API_TOKEN=replace-with-a-different-random-admin-token
+B2_ENDPOINT=https://s3.your-region.backblazeb2.com
+B2_REGION=your-region
+B2_BUCKET=your-private-bucket-name
+B2_KEY_ID=replace-with-b2-key-id
+B2_APPLICATION_KEY=replace-with-b2-application-key

@@ -97,3 +97,46 @@ test('TypeScript API serves live forecast screening without invented probabiliti
   );
   expect((await worker.fetch(request('/api/downscaled/%2e%2e'), mlEnv, context)).status).toBe(404);
 });
+
+test('TypeScript API reads private assets from Backblaze B2 with server-side signing', async () => {
+  let b2Authorization = '';
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async (input: URL | RequestInfo, init?: RequestInit) => {
+      const url = new URL(String(input));
+      b2Authorization = new Headers(init?.headers).get('Authorization') || '';
+      expect(url.href).toBe('https://s3.us-west-004.backblazeb2.com/weather-assets/geojson/sample.json');
+      return new Response('{"type":"FeatureCollection","features":[]}', {
+        headers: {
+          'Content-Type': 'application/geo+json',
+          ETag: 'b2-etag',
+        },
+      });
+    }),
+  );
+  const context = { waitUntil: (_promise: Promise<unknown>) => undefined } as ExecutionContext;
+  const request = new Request('http://localhost/api/assets/geojson/sample.json', {
+    headers: { Origin: 'http://127.0.0.1:5173' },
+  });
+  const response = await worker.fetch(
+    request,
+    {
+      MODE: 'live',
+      ALLOWED_ORIGIN: 'http://127.0.0.1:5173',
+      B2_ENDPOINT: 'https://s3.us-west-004.backblazeb2.com',
+      B2_REGION: 'us-west-004',
+      B2_BUCKET: 'weather-assets',
+      B2_KEY_ID: 'test-key-id',
+      B2_APPLICATION_KEY: 'test-application-key',
+    },
+    context,
+  );
+
+  expect(response.status).toBe(200);
+  expect(response.headers.get('Content-Type')).toBe('application/geo+json');
+  expect(response.headers.get('ETag')).toBe('b2-etag');
+  expect(b2Authorization).toMatch(
+    /^AWS4-HMAC-SHA256 Credential=test-key-id\/\d{8}\/us-west-004\/s3\/aws4_request/,
+  );
+  expect(await response.text()).toContain('FeatureCollection');
+});

@@ -1,8 +1,9 @@
-import type { D1Database, R2Bucket, ExecutionContext } from '@cloudflare/workers-types';
+import type { D1Database, ExecutionContext } from '@cloudflare/workers-types';
 import { demoApi } from '../../shared/api';
 import { LiveWeatherProvider } from '../../shared/liveWeather';
 import { distanceKm } from '../../shared/simulation';
 import type { Coordinate, WeatherEvent } from '../../shared/types';
+import { b2IsConfigured, getB2Object } from './b2';
 
 interface Env {
   MODE?: 'live' | 'demo';
@@ -10,7 +11,11 @@ interface Env {
   ML_API_ORIGIN?: string;
   ML_API_KEY?: string;
   ADMIN_API_TOKEN?: string;
-  WEATHER_ASSETS?: R2Bucket;
+  B2_ENDPOINT?: string;
+  B2_REGION?: string;
+  B2_BUCKET?: string;
+  B2_KEY_ID?: string;
+  B2_APPLICATION_KEY?: string;
   WEATHER_DB?: D1Database;
 }
 
@@ -50,7 +55,7 @@ function forecastHour(url: URL): number | null {
   return value !== null && Number.isInteger(value) ? Math.min(value, 239) : null;
 }
 async function asset(request: Request, env: Env, url: URL) {
-  if (!env.WEATHER_ASSETS) return failure(request, env, 'R2 assets are not configured', 503);
+  if (!b2IsConfigured(env)) return failure(request, env, 'Backblaze B2 assets are not configured', 503);
   const key = decodeURIComponent(url.pathname.slice('/api/assets/'.length));
   if (
     !key ||
@@ -59,13 +64,27 @@ async function asset(request: Request, env: Env, url: URL) {
     !/^(tiles|geojson|raster|replay|model-output)\/[a-zA-Z0-9/_.,@-]+$/.test(key)
   )
     return failure(request, env, 'Invalid object key', 400);
-  const object = await env.WEATHER_ASSETS.get(key);
-  if (!object) return failure(request, env, 'Asset not found', 404);
-  return new Response(object.body as ReadableStream, {
+  let object: Response;
+  try {
+    object = await getB2Object(env, key);
+  } catch (error) {
+    return failure(
+      request,
+      env,
+      error instanceof Error ? error.message : 'Backblaze B2 request failed',
+      502,
+    );
+  }
+  if (object.status === 404) return failure(request, env, 'Asset not found', 404);
+  if (!object.ok) return failure(request, env, 'Backblaze B2 request failed', 502);
+  return new Response(object.body, {
     headers: {
-      'Content-Type': object.httpMetadata?.contentType || 'application/octet-stream',
+      'Content-Type': object.headers.get('Content-Type') || 'application/octet-stream',
       'Cache-Control': 'public, max-age=3600',
-      ETag: object.httpEtag,
+      ...(object.headers.get('ETag') ? { ETag: object.headers.get('ETag')! } : {}),
+      ...(object.headers.get('Last-Modified')
+        ? { 'Last-Modified': object.headers.get('Last-Modified')! }
+        : {}),
       ...cors(request, env),
     },
   });
