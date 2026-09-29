@@ -26,7 +26,11 @@ export function EventFeed() {
     return () => clearInterval(timer);
   }, []);
   useEffect(() => {
-    if (scan === 5 && !sessionStorage.getItem('weather-demo-discovery')) {
+    if (
+      w.selected.provenance.kind !== 'forecast' &&
+      scan === 5 &&
+      !sessionStorage.getItem('weather-demo-discovery')
+    ) {
       sessionStorage.setItem('weather-demo-discovery', '1');
       w.notify('New synthetic extreme event detected · WX-024 · Bay of Bengal');
     }
@@ -38,9 +42,12 @@ export function EventFeed() {
     <aside className="event-feed panel" aria-label="Active weather threats">
       <div className="feed-heading">
         <div>
-          <span className="eyebrow">AI EVENT DISCOVERY</span>
+          <span className="eyebrow">
+            {w.selected.provenance.kind === 'forecast' ? 'ENSEMBLE SCREENING' : 'AI EVENT DISCOVERY'}
+          </span>
           <h2>
-            Active threats <span>{String(shown.length).padStart(2, '0')}</span>
+            {w.selected.provenance.kind === 'forecast' ? 'Weather signals' : 'Active threats'}{' '}
+            <span>{String(shown.length).padStart(2, '0')}</span>
           </h2>
         </div>
         <button
@@ -58,18 +65,24 @@ export function EventFeed() {
           <Radar size={19} />
         </div>
         <div>
-          <strong>{scan === 5 ? 'New extreme detected' : 'Scanning forecast domain'}</strong>
+          <strong>
+            {w.selected.provenance.kind === 'forecast'
+              ? 'Latest GEFS forecast loaded'
+              : scan === 5
+                ? 'New extreme detected'
+                : 'Scanning forecast domain'}
+          </strong>
           <span>
-            {
-              [
-                'Pressure & circulation',
-                'Wind vectors',
-                'Rainfall extremes',
-                'Temperature anomalies',
-                'Humidity & moisture',
-                'WX-024 · synthetic discovery',
-              ][scan]
-            }
+            {w.selected.provenance.kind === 'forecast'
+              ? '16 regional sample sites · day 3–10'
+              : [
+                  'Pressure & circulation',
+                  'Wind vectors',
+                  'Rainfall extremes',
+                  'Temperature anomalies',
+                  'Humidity & moisture',
+                  'WX-024 · synthetic discovery',
+                ][scan]}
           </span>
         </div>
         <span className="status-dot" />
@@ -88,7 +101,9 @@ export function EventFeed() {
       <div className="feed-bottom">
         <span>
           <i className="status-dot" />
-          1.24M grid cells analyzed
+          {w.selected.provenance.kind === 'forecast'
+            ? '16 locations sampled'
+            : '1.24M grid cells analyzed'}
         </span>
         <button onClick={() => navigate('/events')}>
           View all events <ArrowRight size={13} />
@@ -130,12 +145,14 @@ export function EventCard({
             {event.confidence}
             <small>%</small>
           </b>
-          <small>Confidence</small>
+          <small>{event.provenance.kind === 'forecast' ? 'Screening index' : 'Confidence'}</small>
         </span>
-        <Sparkline
-          color={event.type === 'cyclone' ? '#e59e81' : event.type === 'cold' ? '#8cafcf' : '#c7b277'}
-          variant={index}
-        />
+        {event.provenance.kind !== 'forecast' && (
+          <Sparkline
+            color={event.type === 'cyclone' ? '#e59e81' : event.type === 'cold' ? '#8cafcf' : '#c7b277'}
+            variant={index}
+          />
+        )}
       </div>
       <div className="event-card-bottom">
         <span>
@@ -148,7 +165,7 @@ export function EventCard({
           )}{' '}
           {event.status}
         </span>
-        <span>T−{event.leadTime}h</span>
+        <span>T+{event.leadTime}h</span>
       </div>
     </button>
   );

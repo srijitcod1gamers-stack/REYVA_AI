@@ -36,6 +36,7 @@ export function EventIntelligence() {
   const rainfall =
       w.units === 'metric' ? frame.metrics.rainfall : (frame.metrics.rainfall / 25.4).toFixed(1),
     wind = w.units === 'metric' ? frame.metrics.wind : Math.round(frame.metrics.wind * 0.621371);
+  if (!w.replay && w.selected.provenance.kind === 'forecast') return <LiveIntelligence />;
   if (w.location)
     return (
       <aside className="intelligence-panel location-panel">
@@ -271,6 +272,131 @@ export function EventIntelligence() {
           <ExplainableAI />
         </Modal>
       )}
+    </aside>
+  );
+}
+function LiveIntelligence() {
+  const w = useWeather();
+  const navigate = useNavigate();
+  const event = w.selected;
+  const frame = w.frame;
+  if (w.location)
+    return (
+      <aside className="intelligence-panel location-panel">
+        <div className="intelligence-eyebrow">
+          <span>
+            <MapPin size={13} /> LOCATION FORECAST
+          </span>
+          <button
+            className="icon-button"
+            onClick={w.clearLocation}
+            aria-label="Close location inspector"
+          >
+            <X size={17} />
+          </button>
+        </div>
+        <h2>{w.location.name}</h2>
+        <p className="muted mono">
+          {w.location.coordinates[1].toFixed(3)}° N, {w.location.coordinates[0].toFixed(3)}° E
+        </p>
+        <div className="event-status-row">
+          <Badge severity={w.location.severity} />
+          <span className="muted">GEFS ensemble mean</span>
+        </div>
+        <div className="location-metrics">
+          <Metric label="Rainfall / 24h" value={w.location.rainfall.max} unit="mm" />
+          <Metric label="Wind gust" value={w.location.wind} unit="km/h" />
+          <Metric label="Forecast step" value={`T+${w.hour}`} unit="h" />
+          <Metric label="From tracked site" value={w.location.distanceKm} unit="km" />
+        </div>
+        <div className="info-note">
+          <Info size={16} />
+          <span>{w.location.impact} This is not a public warning.</span>
+        </div>
+        <button
+          className="secondary-button full"
+          onClick={() => download(`location-risk-${event.id}.json`, w.location)}
+        >
+          <Download size={14} /> Export coordinate forecast
+        </button>
+        <button className="text-button" onClick={w.clearLocation}>
+          Return to event <ArrowRight size={14} />
+        </button>
+      </aside>
+    );
+  return (
+    <aside className="intelligence-panel">
+      <div className="intelligence-eyebrow">
+        <span>
+          <Crosshair size={13} /> FORECAST SCREENING
+        </span>
+        <span className="mono">{event.id}</span>
+      </div>
+      <div className="event-title-row">
+        <h2>{event.name}</h2>
+        <Wind size={25} />
+      </div>
+      <p className="event-location">
+        <MapPin size={12} />
+        {event.region}
+        <span>·</span>
+        {frame.centroid[1].toFixed(1)}°N, {frame.centroid[0].toFixed(1)}°E
+      </p>
+      <div className="event-status-row">
+        <Badge severity={frame.severity} />
+        <span className="trend-pill">{event.status}</span>
+      </div>
+      <div className="intelligence-scroll">
+        <div className="key-metrics">
+          <Metric label="Forecast lead" value={w.hour} unit="h" hint="Day 3–10" />
+          <Metric label="Sample sites" value={16} hint="Regional screening grid" />
+        </div>
+        <div className="weather-metrics">
+          <Metric label="Rainfall / 24h" value={frame.metrics.rainfall} unit="mm" />
+          <Metric label="Wind gust" value={frame.metrics.wind} unit="km/h" />
+          <Metric label="Pressure" value={frame.metrics.pressure} unit="hPa" />
+        </div>
+        <section className="panel-section">
+          <SectionLabel>Tracked sampled maximum</SectionLabel>
+          <p className="muted">
+            The path links the highest screening signal among 16 sampled locations at each six-hour step.
+            It is not a continuous storm-centre analysis.
+          </p>
+        </section>
+        {frame.ensembleSpread && (
+          <section className="panel-section">
+            <SectionLabel>GEFS member spread · standard deviation</SectionLabel>
+            <div className="weather-metrics">
+              <Metric label="Hourly rain" value={frame.ensembleSpread.precipitationHourly} unit="mm" />
+              <Metric label="Wind gust" value={frame.ensembleSpread.windGust} unit="km/h" />
+              <Metric label="Temperature" value={frame.ensembleSpread.temperature} unit="°C" />
+            </div>
+          </section>
+        )}
+        <section className="panel-section">
+          <SectionLabel>Approximate affected area</SectionLabel>
+          <p className="muted">
+            Colored rings are screening footprints around sampled coordinates. Their borders and area
+            have not been validated against a native-resolution weather grid.
+          </p>
+        </section>
+        <section className="panel-section">
+          <SectionLabel>Model status</SectionLabel>
+          <p className="muted">
+            Live GEFS ensemble mean fields are connected. Calibrated event probability, historical
+            anomaly index, GNN tracking and 5 km diffusion output still require trained models and
+            verification data.
+          </p>
+        </section>
+      </div>
+      <div className="intelligence-bottom">
+        <button className="primary-button full" onClick={() => navigate('/alerts')}>
+          Open screening advisories <ArrowUpRight size={15} />
+        </button>
+        <p>
+          <span className="status-dot" /> GEFS forecast · {utc(frame.timestamp)} UTC
+        </p>
+      </div>
     </aside>
   );
 }

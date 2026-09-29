@@ -16,11 +16,19 @@ const endpoints = [
   { id: 'trajectory', path: '/trajectory/WX-024', label: 'Forecast track' },
   { id: 'downscaled', path: '/downscaled/WX-024', label: 'Downscaled fields' },
 ];
+const liveEndpoints = [
+  { id: 'live-risk', path: '/live/risk?lat=22.57&lon=88.36&hour=96', label: 'Live coordinate risk' },
+  { id: 'events', path: '/events', label: 'Screened events' },
+  { id: 'forecast', path: '/forecast?event_id=LIVE-RAIN&hour=96', label: 'Forecast frame' },
+  { id: 'alerts', path: '/alerts', label: 'Screening advisories' },
+  { id: 'impact', path: '/impact?event_id=LIVE-RAIN&hour=96', label: 'Approximate footprint' },
+];
 export default function APIExplorer() {
   const w = useWeather(),
     [params] = useSearchParams(),
     [path, setPath] = useState(
-      endpoints.find((e) => e.id === params.get('endpoint'))?.path ?? endpoints[0].path,
+      (providerMode === 'demo' ? endpoints : liveEndpoints).find((e) => e.id === params.get('endpoint'))
+        ?.path ?? (providerMode === 'demo' ? endpoints[0] : liveEndpoints[0]).path,
     ),
     [result, setResult] = useState<{ status: number; body: unknown } | null>(null),
     [running, setRunning] = useState(false),
@@ -31,9 +39,12 @@ export default function APIExplorer() {
     try {
       if (providerMode === 'demo') setResult(demoApi(new URL(`/api${path}`, location.origin)));
       else {
-        const r = await fetch(`${import.meta.env.VITE_API_BASE_URL || '/api'}${path}`, {
-          signal: AbortSignal.timeout(12000),
-        });
+        const r = await fetch(
+          `${import.meta.env.VITE_API_BASE_URL || 'http://127.0.0.1:8787/api'}${path}`,
+          {
+            signal: AbortSignal.timeout(12000),
+          },
+        );
         setResult({ status: r.status, body: await r.json() });
       }
     } catch (error) {
@@ -48,13 +59,25 @@ export default function APIExplorer() {
       <PageHeading
         eyebrow="BUILT TO CONNECT"
         title="Alert API explorer"
-        description="Inspect the same typed contracts used by the command center, Workers gateway, and FastAPI."
-        actions={<DemoTag>{providerMode === 'demo' ? 'LOCAL DEMO EXECUTION' : 'CONNECTED API'}</DemoTag>}
+        description={
+          providerMode === 'live'
+            ? 'Query live forecast screening from the TypeScript Cloudflare Worker.'
+            : 'Inspect the TypeScript API contracts used by the command center.'
+        }
+        actions={
+          <DemoTag>
+            {providerMode === 'live'
+              ? 'START TYPESCRIPT API TO TRY'
+              : providerMode === 'demo'
+                ? 'LOCAL DEMO EXECUTION'
+                : 'CONNECTED API'}
+          </DemoTag>
+        }
       />
       <div className="api-layout">
         <aside className="api-endpoints panel">
           <SectionLabel>REST endpoints</SectionLabel>
-          {endpoints.map((e) => (
+          {(providerMode === 'demo' ? endpoints : liveEndpoints).map((e) => (
             <button
               key={e.id}
               className={path === e.path ? 'active' : ''}
@@ -122,19 +145,21 @@ export default function APIExplorer() {
           <pre className="api-response">
             {result
               ? JSON.stringify(result.body, null, 2)
-              : '// Choose an endpoint and send a request.\n// Demo mode executes locally against the shared API contract.\n// All generated data carries explicit simulated provenance.'}
+              : providerMode === 'live'
+                ? '// Run npm run worker:dev in a second terminal.\n// GET /api/live/risk returns a live GEFS coordinate screening assessment.\n// Probability and 5 km risk are not yet validated.'
+                : '// Choose an endpoint and send a request.\n// Demo mode executes locally against the shared API contract.\n// All generated data carries explicit simulated provenance.'}
           </pre>
           <SectionLabel>Example request</SectionLabel>
           <pre className="curl-example">
             curl '
             {providerMode === 'demo'
-              ? 'http://localhost:8000/api'
-              : import.meta.env.VITE_API_BASE_URL || '/api'}
+              ? 'http://127.0.0.1:8787/api'
+              : import.meta.env.VITE_API_BASE_URL || 'http://127.0.0.1:8787/api'}
             {path}'
           </pre>
           <p className="fine-print">
-            For the Python OpenAPI schema, start the backend and visit http://localhost:8000/docs. API
-            mode does not silently fall back to mock data.
+            Start the TypeScript Worker with npm run worker:dev. Live requests do not silently fall back
+            to mock data.
           </p>
         </section>
       </div>

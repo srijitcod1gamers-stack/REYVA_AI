@@ -94,15 +94,18 @@ export default function MapCanvas({ compact = false, resolution, syncView, onVie
       instance.on('load', () => {
         setReady(true);
         setMapError('');
+        const maptilerKey = import.meta.env.VITE_MAPTILER_KEY;
         const tiles =
           import.meta.env.VITE_BASEMAP_TILES ||
-          'https://basemaps.cartocdn.com/dark_nolabels/{z}/{x}/{y}.png';
+          (maptilerKey
+            ? `https://api.maptiler.com/maps/streets-v4/256/{z}/{x}/{y}.png?key=${encodeURIComponent(maptilerKey)}`
+            : '');
         if (tiles && !instance.getSource('context')) {
           instance.addSource('context', {
             type: 'raster',
             tiles: [tiles],
             tileSize: 256,
-            attribution: '© OpenStreetMap contributors © CARTO',
+            attribution: maptilerKey ? '© MapTiler © OpenStreetMap contributors' : 'Custom basemap',
             maxzoom: 18,
           });
           instance.addLayer(
@@ -234,7 +237,9 @@ export default function MapCanvas({ compact = false, resolution, syncView, onVie
         className="maplibre-container"
         aria-label="Interactive weather intelligence map"
       />
-      {!compact && <WindField map={map} center={w.frame.centroid} enabled={w.layers.has('wind')} />}
+      {!compact && !w.frame.samples?.length && (
+        <WindField map={map} center={w.frame.centroid} enabled={w.layers.has('wind')} />
+      )}
       {!ready && !mapError && (
         <div className="map-loading">
           <div className="loading-line" />

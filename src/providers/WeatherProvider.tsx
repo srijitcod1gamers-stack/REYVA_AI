@@ -15,7 +15,8 @@ import type {
   WeatherEvent,
   WeatherVariable,
 } from '../../shared/types';
-import { provider } from '../services/weather';
+import { provider, providerMode } from '../services/weather';
+import { events as replayEvents } from '../../shared/fixtures';
 import { clamp } from '../../shared/simulation';
 
 export type LayerId =
@@ -76,7 +77,7 @@ export function WeatherProvider({ children }: { children: ReactNode }) {
     [hour, updateHour] = useState(96);
   const [playing, setPlaying] = useState(false),
     [speed, setSpeed] = useState(1),
-    [replay, setReplay] = useState(false);
+    [replay, setReplay] = useState(() => window.location.pathname === '/replay');
   const [mode, setMode] = useState<'meteorology' | 'response'>('meteorology'),
     [variable, setVariable] = useState<WeatherVariable>('rainfall');
   const [layers, setLayers] = useState(new Set<LayerId>(['risk', 'trajectory', 'wind', 'boundaries']));
@@ -91,7 +92,8 @@ export function WeatherProvider({ children }: { children: ReactNode }) {
     [revision, setRevision] = useState(0);
   const [units, setUnits] = useState<'metric' | 'imperial'>('metric');
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const selected = events.find((e) => e.id === selectedId) ?? events[0];
+  const activeEvents = replay ? replayEvents : events;
+  const selected = activeEvents.find((e) => e.id === selectedId) ?? activeEvents[0];
   const setHour = useCallback((h: number) => updateHour(clamp(h, 72, 240)), []);
   const notify = useCallback((message: string) => {
     setToast(message);
@@ -121,6 +123,11 @@ export function WeatherProvider({ children }: { children: ReactNode }) {
       });
     return () => controller.abort();
   }, [revision]);
+  useEffect(() => {
+    if (providerMode !== 'live') return;
+    const interval = setInterval(() => setRevision((value) => value + 1), 30 * 60_000);
+    return () => clearInterval(interval);
+  }, []);
   useEffect(() => {
     if (!selected) return;
     const controller = new AbortController();
@@ -186,7 +193,7 @@ export function WeatherProvider({ children }: { children: ReactNode }) {
     () =>
       selected && frame
         ? {
-            events,
+            events: activeEvents,
             selected,
             frame,
             hour,
@@ -270,6 +277,9 @@ export function WeatherProvider({ children }: { children: ReactNode }) {
             <button className="primary-button" onClick={() => setRevision((v) => v + 1)}>
               Retry connection
             </button>
+            <a className="secondary-button" href="/replay">
+              Open historical replay
+            </a>
           </>
         ) : (
           <>

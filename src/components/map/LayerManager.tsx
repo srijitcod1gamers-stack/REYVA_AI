@@ -62,72 +62,89 @@ export function LayerManager() {
           </div>
           <div className="eyebrow">WEATHER FIELD</div>
           <div className="layer-variables">
-            {Object.entries(variableInfo).map(([id, info]) => (
-              <button
-                key={id}
-                className={w.variable === id ? 'selected' : ''}
-                onClick={() => {
-                  w.setAiField('none');
-                  w.setVariable(id as WeatherVariable);
-                }}
-              >
-                {info.label}
-                {w.variable === id && w.aiField === 'none' && <Check size={12} />}
-              </button>
-            ))}
+            {Object.entries(variableInfo)
+              .filter(([id]) => !w.frame.samples?.length || !['anomaly', 'ensemble'].includes(id))
+              .map(([id, info]) => (
+                <button
+                  key={id}
+                  className={w.variable === id ? 'selected' : ''}
+                  onClick={() => {
+                    w.setAiField('none');
+                    w.setVariable(id as WeatherVariable);
+                  }}
+                >
+                  {info.label}
+                  {w.variable === id && w.aiField === 'none' && <Check size={12} />}
+                </button>
+              ))}
           </div>
-          {groups.map((g) => (
-            <div key={g.label}>
-              <div className="eyebrow">{g.label}</div>
-              {g.layers.map((l) => {
-                const on = l.id === 'topography' ? w.view === '3d' : w.layers.has(l.id);
-                return (
+          {groups
+            .filter((g) => !w.frame.samples?.length || !g.label.startsWith('EXPOSURE'))
+            .map((g) => (
+              <div key={g.label}>
+                <div className="eyebrow">{g.label}</div>
+                {g.layers
+                  .filter(
+                    (l) =>
+                      !w.frame.samples?.length ||
+                      !['ensemble', 'wind', 'population', 'hospitals', 'roads', 'agriculture'].includes(
+                        l.id,
+                      ),
+                  )
+                  .map((l) => {
+                    const on = l.id === 'topography' ? w.view === '3d' : w.layers.has(l.id);
+                    return (
+                      <button
+                        className="layer-row"
+                        key={l.id}
+                        onClick={() => choose(l.id)}
+                        role="switch"
+                        aria-checked={on}
+                        title={l.note}
+                      >
+                        <span>
+                          {l.label}
+                          {l.note && <small className="layer-note"> · {l.note}</small>}
+                        </span>
+                        <span className={`toggle ${on ? 'on' : ''}`}>
+                          <i />
+                        </span>
+                      </button>
+                    );
+                  })}
+              </div>
+            ))}
+          {!w.frame.samples?.length && (
+            <>
+              <div className="eyebrow">AI FIELDS · SIMULATED</div>
+              <div className="layer-variables">
+                {(
+                  [
+                    { id: 'none', label: 'Standard weather field' },
+                    { id: 'original', label: '12 km original' },
+                    { id: 'interpolation', label: '5 km interpolation' },
+                    { id: 'ai', label: '5 km AI downscaled' },
+                  ] as const
+                ).map((field) => (
                   <button
-                    className="layer-row"
-                    key={l.id}
-                    onClick={() => choose(l.id)}
-                    role="switch"
-                    aria-checked={on}
-                    title={l.note}
+                    key={field.id}
+                    className={w.aiField === field.id ? 'selected' : ''}
+                    onClick={() => {
+                      w.setAiField(field.id);
+                      if (field.id !== 'none') w.setVariable('rainfall');
+                    }}
                   >
-                    <span>
-                      {l.label}
-                      {l.note && <small className="layer-note"> · {l.note}</small>}
-                    </span>
-                    <span className={`toggle ${on ? 'on' : ''}`}>
-                      <i />
-                    </span>
+                    {field.label}
+                    {w.aiField === field.id && <Check size={12} />}
                   </button>
-                );
-              })}
-            </div>
-          ))}
-          <div className="eyebrow">AI FIELDS · SIMULATED</div>
-          <div className="layer-variables">
-            {(
-              [
-                { id: 'none', label: 'Standard weather field' },
-                { id: 'original', label: '12 km original' },
-                { id: 'interpolation', label: '5 km interpolation' },
-                { id: 'ai', label: '5 km AI downscaled' },
-              ] as const
-            ).map((field) => (
-              <button
-                key={field.id}
-                className={w.aiField === field.id ? 'selected' : ''}
-                onClick={() => {
-                  w.setAiField(field.id);
-                  if (field.id !== 'none') w.setVariable('rainfall');
-                }}
-              >
-                {field.label}
-                {w.aiField === field.id && <Check size={12} />}
-              </button>
-            ))}
-          </div>
+                ))}
+              </div>
+            </>
+          )}
           <p className="fine-print">
-            District boundaries and verified infrastructure can be connected through the geospatial API.
-            Field detail is illustrative, not validated.
+            {w.frame.samples?.length
+              ? 'Colored circles are GEFS ensemble mean values at 16 sampled locations. Screening footprints are approximate, not official hazard polygons.'
+              : 'District boundaries and verified infrastructure can be connected through the geospatial API. Field detail is illustrative, not validated.'}
           </p>
         </div>
       )}
@@ -142,7 +159,9 @@ export function MapLegend() {
       <div>
         <strong>
           {w.aiField === 'none'
-            ? info.label
+            ? w.frame.samples?.length && w.variable === 'wind'
+              ? '10 m wind gusts'
+              : info.label
             : `${w.aiField === 'original' ? '12 km' : '5 km'} ${w.aiField === 'ai' ? 'AI' : w.aiField} rainfall`}
         </strong>
         <span>{info.unit}</span>
@@ -157,8 +176,14 @@ export function MapLegend() {
         ))}
       </div>
       <div className="legend-source">
-        <span>SIMULATED FIELD</span>
-        <span>{w.aiField === 'none' ? '12 km → ~5 km' : w.aiField.toUpperCase()}</span>
+        <span>{w.frame.samples?.length ? 'LIVE SAMPLED FIELD' : 'SIMULATED FIELD'}</span>
+        <span>
+          {w.frame.samples?.length
+            ? 'GEFS 0.25° mean'
+            : w.aiField === 'none'
+              ? '12 km → ~5 km'
+              : w.aiField.toUpperCase()}
+        </span>
       </div>
     </div>
   );

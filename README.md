@@ -1,113 +1,68 @@
 # Weather Intelligence AI
 
-An SIH 2026 command-center prototype for extreme-weather anomaly tracking, ensemble uncertainty, AI downscaling, and geographic impact intelligence. It opens directly into an interactive 4D forecast map. The data provider boundary lets the same React components consume the deterministic demonstration, a FastAPI backend, or a Cloudflare Worker.
+An SIH prototype for screening extreme weather signals in medium-range ensemble forecasts. The React command center and Cloudflare Worker backend are both TypeScript. The default command center fetches the latest NOAA GEFS 0.25° ensemble mean through [Open-Meteo](https://open-meteo.com/en/docs/ensemble-mean-api), samples 16 locations across India and adjacent seas, and displays rainfall, wind gust, temperature, pressure, six-hour signal movement, an approximate footprint, and coordinate risk. Forecast data is refreshed every 30 minutes while the page is open.
 
-**Scientific status:** All event forecasts, member agreement, location risk, impacts, downscaling comparisons, physics scores, and alerts shown by default are **simulated**. The project includes integration interfaces for real data and models, but no NCMRWF feed or trained model is connected. It does not replace official weather forecasts or emergency guidance.
+**Scientific boundary:** This is a screening prototype, not an official forecast or public warning. The sampled maximum path is not a continuous storm-centre track. Colored footprint rings are geometric estimates, not native-grid affected-area polygons. No calibrated event probability, historical EFI baseline, trained GNN, validated 5 km diffusion model, or authoritative population exposure dataset is connected. The live global ensemble source is about **25 km**, not the proposed 12 km NCMRWF input. The `/replay` route remains an explicitly simulated Amphan-inspired scenario.
 
-## Run the demo
+## Run locally
 
-Requirements: Node.js 20+ and npm. Python 3.11+ is needed for the API.
+Install Node.js 20+ and run from the project folder:
 
-```bash
-npm ci
-npm run dev
+```powershell
+npm.cmd ci
+npm.cmd run dev
 ```
 
-Open <http://127.0.0.1:5173>. The site works without a backend. Its regional geographic country boundaries, state lines, and rivers are bundled under `public/geo/`. `npm run geo:prepare` can rebuild these optimized assets from Natural Earth when online. Optional CARTO basemap and Mapterhorn terrain tiles need an internet connection; the local geographic map remains interactive without them.
+Open <http://127.0.0.1:5173/>. The default live view needs internet access to fetch GEFS forecasts. The bundled regional geographic boundaries still load without map tiles. Click the map to request a fresh coordinate forecast. Use the Day 3–10 slider to inspect changing samples, or open `/replay` for the offline scenario.
 
-The default scenario is a **fixed synthetic 27 September 2026 forecast**, not current weather. `/replay` is a **historical-inspired synthetic Cyclone Amphan scenario**, not an observed reconstruction. Move the T+72–240h slider, play at 0.5–4×, select a threat, toggle weather, impact, and AI-resolution layers, inspect a map location, compare forecast runs, and open the supporting routes. Press `Ctrl/Cmd + K` to find locations, coordinates (`22.57, 88.36`), events, and actions.
+If `npm ci` reports `EPERM` while unlinking `lightningcss.win32-x64-msvc.node` on Windows, stop any running Vite, Wrangler, Playwright, or Node processes using this project, then retry. A loaded native module cannot be replaced while its process is running; OneDrive synchronization may also briefly hold the file.
 
-## Application routes
-
-| Route | Purpose |
-| --- | --- |
-| `/` | Map-first command center, event discovery, timeline, location risk |
-| `/events`, `/events/:id` | Event catalog and intelligence dossier |
-| `/replay` | Guided synthetic Amphan-inspired replay |
-| `/downscaling` | Synchronized 12 km / 5 km field comparison and prototype physics checks |
-| `/impact` | Geographic exposure and response planning |
-| `/alerts` | Read-only simulated alert center with JSON / GeoJSON export |
-| `/api` | Interactive API explorer |
-| `/models`, `/data`, `/system` | Pipeline architecture, provenance, and health |
-
-## Use the FastAPI backend
-
-Install [uv](https://docs.astral.sh/uv/getting-started/installation/) or use a standard Python virtual environment. From the repository root:
-
-```bash
-uv sync --project backend --extra test
-uv run --project backend uvicorn app.main:app --app-dir backend --host 127.0.0.1 --port 8000
-```
-
-Open <http://127.0.0.1:8000/docs> for generated OpenAPI documentation. To direct the frontend to FastAPI, create `.env.local`:
+To use a MapTiler basemap, obtain a key from [MapTiler Cloud](https://cloud.maptiler.com/), restrict its allowed origins in the MapTiler dashboard, then create `.env.local` with:
 
 ```dotenv
-VITE_DATA_PROVIDER=api
-VITE_API_BASE_URL=http://127.0.0.1:8000/api
+VITE_MAPTILER_KEY=your_maptiler_key
 ```
 
-Restart Vite after editing the file. The API provider surfaces connection errors; it does not replace failed calls with synthetic fixtures. The backend is intentionally a working demo service. `backend/app/weather_processing.py` provides lazy GRIB/NetCDF, anomaly, spatial intersection, and raster-window interfaces; `backend/app/model_contracts.py` defines graph and artifact prerequisites. Install optional scientific packages with `uv sync --project backend --extra weather --extra geospatial --extra ai` on a suitable Python/PyTorch environment. Model inference is disabled until trained weights, licensed inputs, and validation are supplied.
+Restart Vite after editing `.env.local`. MapTiler browser keys are visible to site visitors; domain restrictions are the protection. If no key is configured, the map uses its locally bundled geographic outlines without a commercial basemap. Do not place a private server credential in a `VITE_` variable.
 
-## Cloudflare setup
+## What is implemented
 
-The frontend targets **Cloudflare Pages**. The API gateway is a separate **Cloudflare Worker** with D1 metadata and R2 object bindings. The Worker defaults to the same deterministic demo contract, so it can be tested before the Python service is hosted. Production `MODE=api` proxies reads to `FASTAPI_ORIGIN`, and the Worker can cache event and alert metadata in D1. `/api/assets/{tiles|geojson|raster|replay|model-output}/...` reads R2. The two deployments need separate origins because `/api` is also the frontend's API Explorer page.
+| View                     | Behavior                                                                                                     |
+| ------------------------ | ------------------------------------------------------------------------------------------------------------ |
+| `/`                      | Live sampled GEFS forecast map, weather variables, screening signals, day 3–10 timeline, coordinate forecast |
+| `/events`, `/events/:id` | Rainfall, wind/pressure and heat screening, sampled movement table                                           |
+| `/impact`                | Approximate footprint radius and area; no fabricated population exposure                                     |
+| `/alerts`                | Read-only screening advisories with JSON and GeoJSON export; no messages sent                                |
+| `/downscaling`           | Shows live coarse input and explains why a validated 5 km output is not yet available                        |
+| `/api`                   | Interactive TypeScript Worker API explorer                                                                   |
+| `/replay`                | Explicitly simulated Amphan-inspired historical scenario                                                     |
 
-1. Log in with `npx wrangler login`. Create `weather-intelligence` D1 and `weather-intelligence-assets` R2:
+Live detection currently uses transparent weather thresholds on sampled ensemble-mean fields, rather than a trained GNN or a 30-year climatological anomaly distribution. A 5 km model cannot be represented honestly until training data, weights, physical constraints and independent validation are supplied.
 
-   ```bash
-   npx wrangler d1 create weather-intelligence
-   npx wrangler r2 bucket create weather-intelligence-assets
-   ```
+## Run the TypeScript API
 
-2. Replace the zero `database_id` in `cloudflare/wrangler.toml` with the returned D1 ID. Apply `cloudflare/migrations/0001_metadata.sql`:
+In a second terminal, run the Cloudflare Worker locally:
 
-   ```bash
-   npx wrangler d1 migrations apply weather-intelligence --config cloudflare/wrangler.toml --remote
-   ```
-
-3. Set `ALLOWED_ORIGIN` to your Pages origin. For a hosted FastAPI service, set `MODE="api"` and `FASTAPI_ORIGIN="https://your-api-host.example"` in Wrangler vars. The hosted service must be publicly reachable over HTTPS from Cloudflare. Set the same `BACKEND_TOKEN` in the backend environment and as a Worker secret to require authenticated gateway requests. Keep `MODE="demo"` for a standalone judge preview.
-4. Deploy the API Worker: `npm run worker:deploy`. Configure Pages to build this GitHub repository using `npm run build`, output `dist`, with `VITE_DATA_PROVIDER=api` and `VITE_API_BASE_URL=https://your-worker.workers.dev/api`. Deploy Pages through Git integration or `npm run pages:deploy` after creating the Pages project. Frontend variables are baked into the build, so rebuild after changing them.
-
-Local Worker development: `npm run db:migrate:local`, then `npm run worker:dev`. Wrangler's local R2 binding stores objects locally. The Worker does not upload weather or raster files; ingestion should write validated assets to R2 through a separate authorized pipeline.
-
-## GitHub setup
-
-The `.github/workflows/ci.yml` workflow builds and checks TypeScript, runs domain and browser tests, and tests the FastAPI contract on pushes to `main` and pull requests. This folder contains a local `main` repository and an initial commit. Create an empty repository under your own GitHub account, then connect it:
-
-```bash
-git remote add origin https://github.com/YOUR_ACCOUNT/weather-intelligence-ai.git
-git push -u origin main
+```powershell
+npm.cmd run worker:dev
 ```
 
-Create the remote repository under your own account first. Cloudflare Pages can connect to that repository to build previews for pull requests. No GitHub credentials, Cloudflare account IDs, D1 database IDs, hosted FastAPI URL, or operational data licenses are stored in this project.
-
-## Verify
-
-```bash
-npm run build
-npm run format:check
-npm run worker:typecheck
-npm test
-npm run test:e2e
-uv run --project backend --extra test python -m pytest backend/tests -q
-```
-
-The Playwright configuration uses locally installed Microsoft Edge. For other environments, change `channel` in `playwright.config.ts` and install the matching Playwright browser.
-After `npm run build`, run `npm run preview` and `node scripts/capture.mjs` for desktop and mobile visual captures under `artifacts/`.
-
-## Architecture and real-data integration
+Call:
 
 ```text
-NCMRWF / ensemble GRIB + topography + authoritative exposure layers
-  → Xarray / Dask / cfgrib / MetPy preprocessing
-  → anomaly climatology + spatial graph + PyTorch Geometric tracking
-  → ensemble assessment + cropped conditional diffusion downscaling
-  → physical validation + GeoPandas / Shapely / Rasterio impact analysis
-  → FastAPI inference and data API
-  → Cloudflare Worker (gateway) + D1 metadata + R2 files and tiles
-  → Cloudflare Pages React / TypeScript / MapLibre / deck.gl command center
+GET http://127.0.0.1:8787/api/live/risk?lat=22.57&lon=88.36&hour=96
 ```
 
-`shared/types.ts` is the typed frontend/Worker contract. `src/services/weather.ts` selects `MockWeatherProvider` or `ApiWeatherProvider`, and `shared/api.ts` handles the Worker's demo API. `backend/app/main.py` implements the matching JSON endpoints. The Python simulation mirrors the TypeScript fixture logic so development can use either provider. Real ingestion belongs behind the existing API, with provenance, model run time, uncertainty, and authorization checked before display. NCMRWF's [dataset portal](https://rds.ncmrwf.gov.in/datasets) is linked as a candidate source; the project does not assume its data is openly downloadable or suitable for every variable.
+The Worker serves live `/api/events`, `/api/forecast`, `/api/risk`, `/api/live/risk`, `/api/alerts`, `/api/impact`, and `/api/trajectory/:id`. Coordinate-risk probability is `null`; a validated 5 km radius is not claimed. Set `VITE_DATA_PROVIDER=api` and `VITE_API_BASE_URL=http://127.0.0.1:8787/api` in `.env.local` to route the website through the Worker. Leave `VITE_DATA_PROVIDER` unset for the one-terminal live website, or use `demo` for offline fixtures. In `cloudflare/wrangler.toml`, `MODE="live"` is the default; `MODE="demo"` is an explicitly synthetic API mode. D1 and R2 bindings are optional for the live endpoints. For deployment, set `ALLOWED_ORIGIN` to the Pages site and configure the Pages build with the deployed Worker URL.
 
-The Natural Earth geographic files are public-domain cartographic assets. CARTO/OpenStreetMap and optional terrain tiles retain their attributions in the map. Synthetic infrastructure coordinates are intentionally labeled and must be replaced with authoritative exposure data before any operational use.
+## Verification
+
+```powershell
+npm.cmd run build
+npm.cmd run format:check
+npm.cmd run worker:typecheck
+npm.cmd test
+npm.cmd run test:e2e
+```
+
+The TypeScript Worker shares forecast logic with the website through `shared/liveWeather.ts`. D1 can cache event and alert metadata, and R2 can serve validated assets later. NCMRWF historical NEPS-G/NCUM inputs, ERA5/IMDAA baselines, trained GNN/diffusion weights and verification datasets are not included or claimed to be publicly accessible. [NCMRWF dataset portal](https://rds.ncmrwf.gov.in/datasets).

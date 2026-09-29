@@ -17,6 +17,7 @@ import { EventIntelligence } from '../components/events/EventIntelligence';
 import { TimelineController } from '../components/timeline/TimelineController';
 import { LayerManager, MapLegend } from '../components/map/LayerManager';
 import { ReplayBanner } from '../components/weather/ReplayBanner';
+import { providerMode } from '../services/weather';
 const MapCanvas = lazy(() => import('../components/map/MapCanvas'));
 
 export default function CommandCenter({ replay = false }: { replay?: boolean }) {
@@ -30,12 +31,25 @@ export default function CommandCenter({ replay = false }: { replay?: boolean }) 
       w.setHour(72);
     }
   }, [replay]);
+  useEffect(() => {
+    if (w.frame.samples?.length) {
+      w.setMode('meteorology');
+      w.setAiField('none');
+      w.setCompare(false);
+    }
+  }, [w.frame.samples?.length]);
   return (
     <div className={`command-center ${focus ? 'map-focused' : ''} mobile-${mobileTab}`}>
       <div className="workspace-bar">
         <div className="workspace-title">
           <span className="workspace-status" />
-          <h1>{replay ? 'Historical event replay' : 'Live intelligence'}</h1>
+          <h1>
+            {replay
+              ? 'Historical event replay'
+              : providerMode === 'live'
+                ? 'Live forecast screening'
+                : 'Forecast intelligence'}
+          </h1>
           <span className="workspace-slash">/</span>
           <button onClick={() => w.setCommandOpen(true)}>
             Indian Ocean basin <ChevronDown size={12} />
@@ -49,17 +63,29 @@ export default function CommandCenter({ replay = false }: { replay?: boolean }) 
             <Activity size={13} />
             <span>Meteorology</span>
           </button>
-          <button
-            className={w.mode === 'response' ? 'active response' : ''}
-            onClick={() => w.setMode('response')}
-          >
-            <ShieldCheck size={13} />
-            <span>Disaster response</span>
-          </button>
+          {!w.frame.samples?.length && (
+            <button
+              className={w.mode === 'response' ? 'active response' : ''}
+              onClick={() => w.setMode('response')}
+            >
+              <ShieldCheck size={13} />
+              <span>Disaster response</span>
+            </button>
+          )}
         </div>
         <span className="workspace-freshness">
           <span className="status-dot" />
-          Forecast run loaded <b>00:00 UTC</b>
+          Forecast valid{' '}
+          <b>
+            {new Date(w.frame.timestamp).toLocaleString('en-GB', {
+              day: '2-digit',
+              month: 'short',
+              hour: '2-digit',
+              minute: '2-digit',
+              timeZone: 'UTC',
+            })}{' '}
+            UTC
+          </b>
         </span>
       </div>
       {replay && <ReplayBanner />}
@@ -71,7 +97,7 @@ export default function CommandCenter({ replay = false }: { replay?: boolean }) 
           className={mobileTab === 'events' ? 'active' : ''}
           onClick={() => setMobileTab('events')}
         >
-          Active threats · 4
+          Signals · {w.events.length}
         </button>
         <button
           className={mobileTab === 'detail' ? 'active' : ''}
@@ -110,14 +136,18 @@ export default function CommandCenter({ replay = false }: { replay?: boolean }) 
                 {[
                   { id: 'rainfall', label: 'Rainfall', icon: CloudRain },
                   { id: 'wind', label: 'Wind', icon: Wind },
-                  { id: 'anomaly', label: 'Anomaly', icon: Activity },
+                  {
+                    id: w.frame.samples?.length ? 'temperature' : 'anomaly',
+                    label: w.frame.samples?.length ? 'Temperature' : 'Anomaly',
+                    icon: Activity,
+                  },
                 ].map(({ id, label, icon: Icon }) => (
                   <button
                     key={id}
                     className={w.variable === id && w.aiField === 'none' ? 'active' : ''}
                     onClick={() => {
                       w.setAiField('none');
-                      w.setVariable(id as 'rainfall' | 'wind' | 'anomaly');
+                      w.setVariable(id as 'rainfall' | 'wind' | 'temperature' | 'anomaly');
                     }}
                   >
                     <Icon size={14} />
@@ -140,7 +170,7 @@ export default function CommandCenter({ replay = false }: { replay?: boolean }) 
             </div>
             <div className="map-domain-label">
               <Globe2 size={12} />
-              <span>INDIAN OCEAN · ENSEMBLE DOMAIN</span>
+              <span>INDIAN OCEAN · {w.replay ? 'REPLAY' : 'GEFS SAMPLE DOMAIN'}</span>
             </div>
             {w.compare && (
               <div className="comparison-key panel">

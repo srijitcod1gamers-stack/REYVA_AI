@@ -8,9 +8,6 @@ const Downscaling = lazy(() => import('./pages/Downscaling'));
 const Impact = lazy(() => import('./pages/Impact'));
 const Alerts = lazy(() => import('./pages/Alerts'));
 const APIExplorer = lazy(() => import('./pages/APIExplorer'));
-const Models = lazy(() => import('./pages/Models'));
-const DataSources = lazy(() => import('./pages/DataSources'));
-const SystemHealth = lazy(() => import('./pages/SystemHealth'));
 
 export default function App() {
   return (
@@ -32,9 +29,6 @@ export default function App() {
           <Route path="/impact" element={<Impact />} />
           <Route path="/alerts" element={<Alerts />} />
           <Route path="/api" element={<APIExplorer />} />
-          <Route path="/models" element={<Models />} />
-          <Route path="/data" element={<DataSources />} />
-          <Route path="/system" element={<SystemHealth />} />
           <Route
             path="*"
             element={

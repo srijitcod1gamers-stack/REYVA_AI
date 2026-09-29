@@ -37,7 +37,7 @@ export default function Alerts() {
     const url = `${location.origin}/alerts?id=${selected.id}`;
     try {
       if (navigator.share)
-        await navigator.share({ title: `${selected.id} · Simulated weather alert`, url });
+        await navigator.share({ title: `${selected.id} · Forecast screening advisory`, url });
       else {
         await copy(url);
         w.notify('Alert link copied');
@@ -52,7 +52,13 @@ export default function Alerts() {
         eyebrow="ACTIONABLE, TRACEABLE, EXPORTABLE"
         title="Alert center"
         description="Location-aware advisories with uncertainty and exposure context."
-        actions={<DemoTag>DEMONSTRATION ADVISORIES</DemoTag>}
+        actions={
+          <DemoTag>
+            {w.selected.provenance.kind === 'forecast'
+              ? 'LIVE INPUT · NOT AN OFFICIAL WARNING'
+              : 'DEMONSTRATION ADVISORIES'}
+          </DemoTag>
+        }
       />
       <div className="alert-toolbar">
         <div className="segment-control">
@@ -83,7 +89,11 @@ export default function Alerts() {
                 {a.region}
               </p>
               <div className="alert-card-footer">
-                <span>{a.confidence}% confidence</span>
+                <span>
+                  {a.provenance.kind === 'forecast'
+                    ? 'Ensemble-mean signal'
+                    : `${a.confidence}% confidence`}
+                </span>
                 <span>{a.acknowledged ? 'Reviewed' : `Lead ${a.leadHours}h`}</span>
               </div>
             </button>
@@ -101,7 +111,9 @@ export default function Alerts() {
               <span className="muted">{selected.region}</span>
             </div>
             <div className="alert-detail-metrics">
-              <Metric label="Confidence" value={selected.confidence} unit="%" />
+              {selected.provenance.kind !== 'forecast' && (
+                <Metric label="Confidence" value={selected.confidence} unit="%" />
+              )}
               <Metric label="Lead time" value={selected.leadHours} unit="h" />
               <Metric label="Expected rainfall" value={selected.rainfall} unit="mm" />
               <Metric label="Expected wind" value={selected.wind} unit="km/h" />
@@ -117,22 +129,27 @@ export default function Alerts() {
               </div>
               <div>
                 <span>Potential population exposure</span>
-                <b>{number(selected.population)}</b>
+                <b>
+                  {selected.provenance.kind === 'forecast'
+                    ? 'Not assessed'
+                    : number(selected.population)}
+                </b>
               </div>
               <div>
-                <span>Issued</span>
+                <span>{selected.provenance.kind === 'forecast' ? 'Screened at' : 'Issued'}</span>
                 <b>{utc(selected.timestamp)} UTC</b>
               </div>
               <div>
                 <span>Source</span>
-                <b>Synthetic global ensemble</b>
+                <b>{selected.provenance.source}</b>
               </div>
             </div>
             <div className="info-note">
               <Siren size={18} />
               <span>
-                This is a simulated advisory for demonstration. Follow official agency guidance for real
-                emergencies.
+                {selected.provenance.kind === 'forecast'
+                  ? 'Automated forecast screening only. The footprint is approximate and no official alert has been issued. Follow official agency guidance.'
+                  : 'This is a simulated advisory for demonstration. Follow official agency guidance for real emergencies.'}
               </span>
             </div>
             <div className="alert-actions">
@@ -173,9 +190,11 @@ export default function Alerts() {
               <button className="secondary-button" onClick={share}>
                 <Share2 size={14} /> Share
               </button>
-              <button className="secondary-button" onClick={() => navigate('/api?endpoint=alerts')}>
-                <Code2 size={14} /> API preview
-              </button>
+              {selected.provenance.kind !== 'forecast' && (
+                <button className="secondary-button" onClick={() => navigate('/api?endpoint=alerts')}>
+                  <Code2 size={14} /> API preview
+                </button>
+              )}
             </div>
             <button
               className="text-button"

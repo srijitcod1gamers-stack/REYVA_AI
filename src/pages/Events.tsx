@@ -20,8 +20,14 @@ export default function Events() {
       <PageHeading
         eyebrow="CONTINUOUS DISCOVERY"
         title="Extreme event intelligence"
-        description="From forecast anomalies to tracked, explainable weather systems."
-        actions={<DemoTag />}
+        description="Screened rainfall, wind and heat signals across the medium-range forecast."
+        actions={
+          <DemoTag>
+            {w.selected.provenance.kind === 'forecast'
+              ? 'LIVE GEFS INPUT · SCREENING'
+              : 'SIMULATED DATA'}
+          </DemoTag>
+        }
       />
       <div className="discovery-strip panel">
         <div className="scanner-icon">
@@ -29,15 +35,21 @@ export default function Events() {
         </div>
         <div>
           <strong>Domain scan complete</strong>
-          <p>1,248,320 grid cells · 6 atmospheric variables · 23 synthetic ensemble members</p>
+          <p>
+            {w.selected.provenance.kind === 'forecast'
+              ? '16 regional sample sites · rainfall, wind, temperature, pressure · day 3–10'
+              : 'Synthetic regional demonstration'}
+          </p>
         </div>
         <div>
-          <b>14</b>
-          <small>Candidate anomalies</small>
+          <b>{w.selected.provenance.kind === 'forecast' ? '16' : '04'}</b>
+          <small>
+            {w.selected.provenance.kind === 'forecast' ? 'Sample sites' : 'Candidate anomalies'}
+          </small>
         </div>
         <div>
-          <b>04</b>
-          <small>Tracked events</small>
+          <b>{String(w.events.length).padStart(2, '0')}</b>
+          <small>Screened signals</small>
         </div>
       </div>
       <div className="table-toolbar">
@@ -66,7 +78,7 @@ export default function Events() {
         <div className="event-table-head">
           <span>EVENT / REGION</span>
           <span>SEVERITY</span>
-          <span>CONFIDENCE</span>
+          <span>{w.selected.provenance.kind === 'forecast' ? 'SCREENING INDEX' : 'CONFIDENCE'}</span>
           <span>TREND</span>
           <span>LEAD TIME</span>
           <span />
@@ -100,7 +112,7 @@ export default function Events() {
                 <i style={{ width: `${e.confidence}%` }} />
               </span>
               <span className="table-trend">
-                <Sparkline variant={w.events.indexOf(e)} />
+                {e.provenance.kind !== 'forecast' && <Sparkline variant={w.events.indexOf(e)} />}
                 {e.status}
               </span>
               <b className="mono">{e.leadTime}h</b>
@@ -114,10 +126,7 @@ export default function Events() {
       </div>
       <div className="info-note">
         <Radar size={18} />
-        <span>
-          Discovery and classifications are simulated. A real anomaly detector can replace this data
-          provider without changing the interface.
-        </span>
+        <span>{w.selected.provenance.disclaimer}</span>
       </div>
     </div>
   );

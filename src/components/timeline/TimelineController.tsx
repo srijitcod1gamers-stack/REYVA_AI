@@ -16,7 +16,13 @@ export function TimelineController() {
         <div className="timeline-current">
           <b>T+{w.hour}h</b>
           <span>{utc(w.frame.timestamp)} UTC</span>
-          <span className="forecast-chip">{w.replay ? 'HISTORICAL SIMULATION' : 'FORECAST · DEMO'}</span>
+          <span className="forecast-chip">
+            {w.replay
+              ? 'HISTORICAL SIMULATION'
+              : w.selected.provenance.kind === 'forecast'
+                ? 'LIVE ENSEMBLE'
+                : 'FORECAST · DEMO'}
+          </span>
         </div>
       </div>
       <div className="timeline-main">
@@ -121,7 +127,7 @@ export function TimelineController() {
         </span>
         <div>
           <span className="track-key" />
-          AI trajectory
+          Screened trajectory
           <span className="track-key dashed" />
           Forecast continuation
           <span className="uncertainty-key" />

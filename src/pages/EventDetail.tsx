@@ -24,6 +24,7 @@ export default function EventDetail() {
         <button onClick={() => navigate('/events')}>Back to events</button>
       </div>
     );
+  if (event.provenance.kind === 'forecast') return <LiveEventDetail />;
   return (
     <div className="page event-detail-page">
       <button className="text-button" onClick={() => navigate('/events')}>
@@ -63,7 +64,6 @@ export default function EventDetail() {
           'AI explanation',
           'Forecast changes',
           'Alerts',
-          'Model details',
         ].map((t) => (
           <button key={t} className={tab === t ? 'active' : ''} onClick={() => setTab(t)}>
             {t}
@@ -165,18 +165,14 @@ export default function EventDetail() {
                 Compare on map <ArrowUpRight size={14} />
               </button>
             </>
-          ) : ['Downscaling', 'Alerts', 'Model details'].includes(tab) ? (
+          ) : ['Downscaling', 'Alerts'].includes(tab) ? (
             <>
               <p className="muted">
                 Explore {tab.toLowerCase()} for {event.id} in the dedicated workspace.
               </p>
               <button
                 className="primary-button"
-                onClick={() =>
-                  navigate(
-                    tab === 'Downscaling' ? '/downscaling' : tab === 'Alerts' ? '/alerts' : '/models',
-                  )
-                }
+                onClick={() => navigate(tab === 'Downscaling' ? '/downscaling' : '/alerts')}
               >
                 Open {tab.toLowerCase()} <ArrowUpRight size={14} />
               </button>
@@ -185,6 +181,87 @@ export default function EventDetail() {
             <EnsembleDetail />
           )}
           <div className="fine-print">{event.provenance.disclaimer}</div>
+        </aside>
+      </div>
+    </div>
+  );
+}
+function LiveEventDetail() {
+  const w = useWeather();
+  const navigate = useNavigate();
+  const event = w.selected;
+  return (
+    <div className="page event-detail-page">
+      <button className="text-button" onClick={() => navigate('/events')}>
+        <ArrowLeft size={14} /> All signals
+      </button>
+      <PageHeading
+        eyebrow={`FORECAST SCREENING / ${event.id}`}
+        title={event.name}
+        description={`${event.region} · NOAA GEFS 0.25° ensemble mean · forecast run ${utc(event.provenance.run)} UTC`}
+        actions={<Badge severity={w.frame.severity} />}
+      />
+      <div className="detail-page-grid">
+        <div className="detail-main">
+          <div className="detail-map panel">
+            <Suspense fallback={<div className="loading-line" />}>
+              <MapCanvas compact />
+            </Suspense>
+            <button className="map-pill" onClick={() => navigate('/')}>
+              <ExternalLink size={13} /> Open command map
+            </button>
+          </div>
+          <TimelineController />
+          <div className="panel trajectory-table">
+            <SectionLabel>Screened maxima · six-hour sampling</SectionLabel>
+            <div className="table-scroll">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Time UTC</th>
+                    <th>Lat / Lon</th>
+                    <th>Rain / 24h</th>
+                    <th>Wind gust</th>
+                    <th>Pressure</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {event.trajectory
+                    .filter((p) => p.hour % 24 === 0)
+                    .map((p) => (
+                      <tr key={p.hour} onClick={() => w.setHour(p.hour)}>
+                        <td>{utc(p.timestamp)}</td>
+                        <td>
+                          {p.coordinates[1].toFixed(2)} / {p.coordinates[0].toFixed(2)}
+                        </td>
+                        <td>{p.metrics.rainfall} mm</td>
+                        <td>{p.metrics.wind} km/h</td>
+                        <td>{p.metrics.pressure} hPa</td>
+                      </tr>
+                    ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+        <aside className="detail-side panel">
+          <SectionLabel>Current forecast step</SectionLabel>
+          <div className="location-metrics">
+            <Metric label="Rainfall / 24h" value={w.frame.metrics.rainfall} unit="mm" />
+            <Metric label="Wind gust" value={w.frame.metrics.wind} unit="km/h" />
+            <Metric label="Pressure" value={w.frame.metrics.pressure} unit="hPa" />
+            <Metric label="Temperature" value={w.frame.metrics.temperature} unit="°C" />
+          </div>
+          <div className="info-note">{event.provenance.disclaimer}</div>
+          <button
+            className="secondary-button full"
+            onClick={() => download(`${event.id}-forecast.json`, { event, frame: w.frame })}
+          >
+            <Download size={14} /> Export forecast JSON
+          </button>
+          <button className="primary-button full" onClick={() => navigate('/alerts')}>
+            Open screening advisories <ArrowUpRight size={14} />
+          </button>
         </aside>
       </div>
     </div>

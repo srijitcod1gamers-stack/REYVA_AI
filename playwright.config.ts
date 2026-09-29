@@ -13,7 +13,7 @@ export default defineConfig({
     screenshot: 'only-on-failure',
   },
   webServer: {
-    command: process.platform === 'win32' ? 'npm.cmd run preview' : 'npm run preview',
+    command: 'node node_modules/vite/bin/vite.js preview --host 127.0.0.1 --port 5173 --strictPort',
     url: 'http://127.0.0.1:5173',
     reuseExistingServer: true,
     timeout: 60000,

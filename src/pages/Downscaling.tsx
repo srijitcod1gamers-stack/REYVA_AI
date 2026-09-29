@@ -1,12 +1,14 @@
 import { lazy, Suspense, useEffect, useState } from 'react';
 import { Check, Download, FlaskConical, Link2, MoveHorizontal } from 'lucide-react';
 import { provider } from '../services/weather';
+import { useWeather } from '../providers/WeatherProvider';
 import type { DownscalingResult } from '../../shared/types';
 import { physicsMetrics } from '../../shared/fixtures';
 import { DemoTag, PageHeading, SectionLabel } from '../components/ui/Primitives';
 import { download } from '../utils/format';
 const MapCanvas = lazy(() => import('../components/map/MapCanvas'));
 export default function Downscaling() {
+  const w = useWeather();
   const [data, setData] = useState<DownscalingResult[]>([]),
     [error, setError] = useState(''),
     [compare, setCompare] = useState<'ai' | 'interpolation'>('ai'),
@@ -22,6 +24,7 @@ export default function Downscaling() {
       });
     return () => controller.abort();
   }, []);
+  if (w.selected.provenance.kind === 'forecast') return <LiveDownscaling />;
   return (
     <div className="page downscaling-page">
       <PageHeading
@@ -185,6 +188,59 @@ export default function Downscaling() {
             observations and held-out events.
           </p>
         </section>
+      </div>
+    </div>
+  );
+}
+function LiveDownscaling() {
+  const w = useWeather();
+  return (
+    <div className="page downscaling-page">
+      <PageHeading
+        eyebrow="FROM GLOBAL ENSEMBLE TO LOCAL RISK"
+        title="5 km detail workspace"
+        description="Inspect the live coarse ensemble signal and the requirements for a validated high-resolution forecast."
+        actions={<DemoTag>AI MODEL NOT CONNECTED</DemoTag>}
+      />
+      <div className="comparison-maps">
+        <div className="comparison-map panel">
+          <div className="comparison-map-title">
+            <div>
+              <span className="eyebrow">LIVE MODEL INPUT</span>
+              <h3>GEFS 0.25° sampled field</h3>
+            </div>
+            <b>
+              ~25 <small>km</small>
+            </b>
+          </div>
+          <Suspense fallback={<div className="loading-line" />}>
+            <MapCanvas compact />
+          </Suspense>
+          <span className="map-data-tag">16 SAMPLED FORECAST LOCATIONS</span>
+        </div>
+        <div className="comparison-map panel">
+          <div className="comparison-map-title">
+            <div>
+              <span className="eyebrow mint">5 KM OUTPUT</span>
+              <h3>Awaiting trained downscaling model</h3>
+            </div>
+            <b className="mint">
+              5 <small>km</small>
+            </b>
+          </div>
+          <div className="empty-state">
+            <FlaskConical size={32} />
+            <p>
+              A finer grid cannot be inferred from this sparse sample alone. Connect licensed
+              high-resolution training data, trained model weights and independent validation before
+              displaying 5 km risk values.
+            </p>
+          </div>
+        </div>
+      </div>
+      <div className="panel info-note">
+        Current live input: {w.selected.provenance.source}. This page deliberately avoids inventing
+        diffusion output or validation scores.
       </div>
     </div>
   );

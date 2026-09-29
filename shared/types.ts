@@ -63,6 +63,8 @@ export interface ForecastFrame {
   polygons: RiskPolygon[];
   ensemble: EnsembleSummary;
   impact: ImpactAssessment;
+  samples?: { coordinates: Coordinate; metrics: WeatherMetrics }[];
+  ensembleSpread?: { precipitationHourly: number; windGust: number; temperature: number };
 }
 export interface WeatherEvent {
   id: string;

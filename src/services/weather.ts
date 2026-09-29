@@ -1,5 +1,6 @@
 import { events, downscaling } from '../../shared/fixtures';
 import { alertsFor, frameFor, riskFor } from '../../shared/simulation';
+import { LiveWeatherProvider } from '../../shared/liveWeather';
 import type {
   Alert,
   Coordinate,
@@ -75,5 +76,12 @@ export class ApiWeatherProvider implements WeatherDataProvider {
 export const provider =
   import.meta.env.VITE_DATA_PROVIDER === 'api'
     ? new ApiWeatherProvider(import.meta.env.VITE_API_BASE_URL || '/api')
-    : new MockWeatherProvider();
-export const providerMode = import.meta.env.VITE_DATA_PROVIDER === 'api' ? 'api' : 'demo';
+    : import.meta.env.VITE_DATA_PROVIDER === 'demo'
+      ? new MockWeatherProvider()
+      : new LiveWeatherProvider();
+export const providerMode =
+  import.meta.env.VITE_DATA_PROVIDER === 'api'
+    ? 'api'
+    : import.meta.env.VITE_DATA_PROVIDER === 'demo'
+      ? 'demo'
+      : 'live';

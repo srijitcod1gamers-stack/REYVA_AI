@@ -3,17 +3,14 @@ import { NavLink, useNavigate } from 'react-router-dom';
 import {
   Activity,
   Bell,
-  Blocks,
   ChevronDown,
   CircleHelp,
   Clock3,
   Code2,
   Command,
-  Database,
   FlaskConical,
   Globe2,
   Map,
-  Radio,
   Search,
   Settings2,
   ShieldCheck,
@@ -31,13 +28,11 @@ const links = [
   { to: '/downscaling', label: 'Downscaling lab', icon: FlaskConical },
   { to: '/impact', label: 'Impact intelligence', icon: ShieldCheck },
   { to: '/replay', label: 'Historical replay', icon: Clock3 },
-  { to: '/models', label: 'AI pipeline', icon: Blocks },
 ];
 export function AppShell({ children }: { children: ReactNode }) {
   const w = useWeather(),
     navigate = useNavigate();
-  const [settings, setSettings] = useState(false),
-    [profile, setProfile] = useState(false);
+  const [settings, setSettings] = useState(false);
   const closeSettings = useCallback(() => setSettings(false), []);
   return (
     <div className="app-shell">
@@ -60,16 +55,25 @@ export function AppShell({ children }: { children: ReactNode }) {
             }}
           >
             <span className="status-dot" />
-            {w.replay ? 'REPLAY' : 'LIVE VIEW'}
+            {w.replay ? 'REPLAY' : providerMode === 'live' ? 'LIVE FORECAST' : 'DEMO VIEW'}
             <ChevronDown size={12} />
           </button>
           <span className="header-divider" />
           <div className="model-context">
             <strong>
-              Global ensemble <span>23 members</span>
+              {w.replay ? 'Historical scenario' : w.selected.provenance.model}{' '}
+              <span>{w.frame.ensemble.total ? `${w.frame.ensemble.total} members` : 'mean field'}</span>
             </strong>
             <small>
-              {w.replay ? '14 MAY 2020' : '27 SEP 2026'} <b>00Z</b> <span>·</span> T+72–240h
+              {new Date(w.selected.provenance.run)
+                .toLocaleDateString('en-GB', {
+                  day: '2-digit',
+                  month: 'short',
+                  year: 'numeric',
+                  timeZone: 'UTC',
+                })
+                .toUpperCase()}{' '}
+              <b>UTC</b> <span>·</span> DAY 3–10
             </small>
           </div>
         </div>
@@ -94,36 +98,10 @@ export function AppShell({ children }: { children: ReactNode }) {
           <button className="icon-button" aria-label="Settings" onClick={() => setSettings(true)}>
             <Settings2 size={18} />
           </button>
-          <button
-            className="avatar"
-            aria-label="Workspace profile"
-            onClick={() => setProfile((v) => !v)}
-          >
+          <span className="avatar" aria-label="Operations workspace">
             OP
-          </button>
+          </span>
         </div>
-        {profile && (
-          <div className="profile-menu panel">
-            <strong>Operations workspace</strong>
-            <span>SIH 2026 · Prototype session</span>
-            <button
-              onClick={() => {
-                navigate('/system');
-                setProfile(false);
-              }}
-            >
-              <Activity size={15} /> System health
-            </button>
-            <button
-              onClick={() => {
-                navigate('/data');
-                setProfile(false);
-              }}
-            >
-              <Database size={15} /> Data provenance
-            </button>
-          </div>
-        )}
       </header>
       <nav className="main-nav" aria-label="Main navigation">
         <div className="nav-links">
@@ -136,7 +114,7 @@ export function AppShell({ children }: { children: ReactNode }) {
             >
               <Icon size={15} />
               <span>{label}</span>
-              {to === '/events' && <b>04</b>}
+              {to === '/events' && <b>{String(w.events.length).padStart(2, '0')}</b>}
             </NavLink>
           ))}
         </div>
@@ -145,10 +123,14 @@ export function AppShell({ children }: { children: ReactNode }) {
             <Code2 size={16} />
             <span>API</span>
           </NavLink>
-          <NavLink to="/system" className="system-link">
+          <span className="system-link">
             <span className="status-dot" />
-            {providerMode === 'demo' ? 'Demo systems ready' : 'API connected'}
-          </NavLink>
+            {providerMode === 'live'
+              ? 'GEFS forecast loaded'
+              : providerMode === 'demo'
+                ? 'Demo forecast'
+                : 'API mode'}
+          </span>
         </div>
       </nav>
       {w.error && (
@@ -161,15 +143,26 @@ export function AppShell({ children }: { children: ReactNode }) {
       <footer className="status-footer">
         <div>
           <span className="status-dot" />
-          <span>{providerMode === 'demo' ? 'DEMO ENVIRONMENT' : 'API ENVIRONMENT'}</span>
+          <span>
+            {w.replay
+              ? 'HISTORICAL SCENARIO'
+              : providerMode === 'live'
+                ? 'LIVE ENSEMBLE INPUT'
+                : providerMode === 'demo'
+                  ? 'DEMO ENVIRONMENT'
+                  : 'API ENVIRONMENT'}
+          </span>
           <i />
-          <span>Simulated data · Not an official forecast</span>
+          <span>
+            {w.replay || providerMode === 'demo' ? 'Simulated scenario' : 'Screening estimates'} · Not an
+            official warning
+          </span>
         </div>
         <div>
           <Globe2 size={11} />
           <span>INDIAN OCEAN DOMAIN</span>
           <i />
-          <button onClick={() => navigate('/data')}>Data & attribution</button>
+          <span>{w.replay ? 'Replay' : w.selected.provenance.source}</span>
           <span className="footer-version">v1.0 / SIH 2026</span>
         </div>
       </footer>
@@ -209,10 +202,7 @@ export function AppShell({ children }: { children: ReactNode }) {
             </label>
             <div className="info-note">
               <CircleHelp size={17} />
-              <span>
-                Weather fields are synthetic. The displayed forecast run is fixed for reproducible
-                demonstrations.
-              </span>
+              <span>{w.selected.provenance.disclaimer}</span>
             </div>
             <button
               className="secondary-button"

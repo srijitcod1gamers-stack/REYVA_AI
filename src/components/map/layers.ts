@@ -137,7 +137,42 @@ export function createLayers({
       widthUnits: 'pixels',
     }),
   ];
-  if (resolution) {
+  if (frame.samples?.length) {
+    const scale =
+      variable === 'rainfall'
+        ? [0, 10, 25, 50, 100, 200]
+        : variable === 'wind'
+          ? [0, 20, 40, 60, 100, 150]
+          : variable === 'temperature'
+            ? [0, 10, 20, 30, 40, 50]
+            : variable === 'pressure'
+              ? [960, 975, 990, 1005, 1020, 1035]
+              : [0, 20, 40, 60, 80, 100];
+    layers.push(
+      new ScatterplotLayer({
+        id: 'live-sample-values',
+        data: frame.samples,
+        getPosition: (d) => d.coordinates,
+        getRadius: 43000,
+        radiusUnits: 'meters',
+        getFillColor: (d) => {
+          const value =
+            d.metrics[variable === 'ensemble' || variable === 'anomaly' ? 'rainfall' : variable];
+          const next = scale.findIndex((threshold) => value < threshold);
+          const index = next === -1 ? 5 : Math.max(0, next - 1);
+          return rgb(variableInfo[variable].colors[index], 140);
+        },
+        getLineColor: [255, 255, 255, 150],
+        getLineWidth: 1,
+        lineWidthUnits: 'pixels',
+        stroked: true,
+        pickable: true,
+        onClick: (info: PickingInfo) => {
+          if (info.object?.coordinates) onPick(info.object.coordinates, 'Sampled forecast location');
+        },
+      }),
+    );
+  } else if (resolution) {
     const cell = resolution === 12 ? 0.38 : 0.15;
     const cells: Band[] = [];
     for (let x = -3; x < 3; x += cell)
@@ -183,7 +218,7 @@ export function createLayers({
         transitions: { getPolygon: 240, getElevation: 240 },
       }),
     );
-  if (visible.has('ensemble')) {
+  if (visible.has('ensemble') && !frame.samples?.length) {
     const cone = [
       ...paths.map((p, i) => [p[0] - i * 0.045, p[1]] as Coordinate),
       ...[...paths].reverse().map((p, j) => [p[0] + (paths.length - 1 - j) * 0.045, p[1]] as Coordinate),
