@@ -143,6 +143,27 @@ export interface DownscalingResult {
   similarity: number;
   kind: DataKind;
 }
+export interface ValidatedRainfallGrid {
+  event_id: string;
+  hour: number;
+  valid_time: string;
+  variable: 'accumulated_precipitation_mm';
+  accumulation_hours: number;
+  resolution_degrees: number;
+  method: string;
+  source: string;
+  validation: {
+    model_mae_mm: number;
+    baseline_mae_mm: number;
+    model_p99_error_mm: number;
+    baseline_p99_error_mm: number;
+    cases: number;
+  };
+  bounds: [number, number, number, number];
+  width: number;
+  height: number;
+  values: number[][];
+}
 export interface Infrastructure {
   id: string;
   name: string;

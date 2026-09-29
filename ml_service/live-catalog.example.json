@@ -1,0 +1,27 @@
+{
+  "runs": [
+    {
+      "event_id": "LIVE-RAIN",
+      "hour": 96,
+      "forecast": "ml_service/data/forecast-2026-09-29-t96.nc",
+      "variable": "precipitation",
+      "accumulation_hours": 24,
+      "valid_time": "2026-10-03T00:00:00Z",
+      "bounds": [75.0, 5.0, 95.0, 30.0],
+      "source": "NEPS-G accumulated precipitation"
+    }
+  ],
+  "tracking_runs": [
+    {
+      "event_id": "LIVE-RAIN",
+      "hour": 96,
+      "valid_time": "2026-10-03T00:00:00Z",
+      "bounds": [75.0, 5.0, 95.0, 30.0],
+      "fields": [
+        {"path": "ml_service/data/forecast-efi.nc", "variable": "efi"},
+        {"path": "ml_service/data/forecast-wind.nc", "variable": "wind_gust"},
+        {"path": "ml_service/data/forecast-pressure.nc", "variable": "pressure_msl"}
+      ]
+    }
+  ]
+}

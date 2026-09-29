@@ -5,7 +5,7 @@ import { Compass, Crosshair, Minus, Plus, RotateCcw } from 'lucide-react';
 import { useWeather } from '../../providers/WeatherProvider';
 import { createLayers } from './layers';
 import { WindField } from './WindField';
-import type { Coordinate } from '../../../shared/types';
+import type { Coordinate, ValidatedRainfallGrid } from '../../../shared/types';
 import 'maplibre-gl/dist/maplibre-gl.css';
 
 const style: StyleSpecification = {
@@ -51,10 +51,17 @@ const style: StyleSpecification = {
 interface Props {
   compact?: boolean;
   resolution?: number;
+  rainfallGrid?: ValidatedRainfallGrid;
   syncView?: { lng: number; lat: number; zoom: number };
   onViewChange?: (v: { lng: number; lat: number; zoom: number }) => void;
 }
-export default function MapCanvas({ compact = false, resolution, syncView, onViewChange }: Props) {
+export default function MapCanvas({
+  compact = false,
+  resolution,
+  rainfallGrid,
+  syncView,
+  onViewChange,
+}: Props) {
   const w = useWeather(),
     container = useRef<HTMLDivElement>(null),
     [map, setMap] = useState<LibreMap | null>(null),
@@ -163,6 +170,61 @@ export default function MapCanvas({ compact = false, resolution, syncView, onVie
   useEffect(() => {
     overlay.current?.setProps({ layers });
   }, [layers, ready]);
+  useEffect(() => {
+    if (!map || !ready || !rainfallGrid) return;
+    if (rainfallGrid.width !== 64 || rainfallGrid.height !== 64 || rainfallGrid.values.length !== 64)
+      return;
+    const canvas = document.createElement('canvas');
+    canvas.width = rainfallGrid.width;
+    canvas.height = rainfallGrid.height;
+    const context = canvas.getContext('2d');
+    if (!context) return;
+    const pixels = context.createImageData(canvas.width, canvas.height);
+    for (let y = 0; y < 64; y++) {
+      if (rainfallGrid.values[y]?.length !== 64) return;
+      for (let x = 0; x < 64; x++) {
+        const value = rainfallGrid.values[63 - y][x];
+        const intensity = Math.min(1, Math.max(0, value / 150));
+        const index = (y * 64 + x) * 4;
+        pixels.data[index] = Math.round(39 + 214 * intensity);
+        pixels.data[index + 1] = Math.round(190 - 135 * intensity);
+        pixels.data[index + 2] = Math.round(170 - 115 * intensity);
+        pixels.data[index + 3] = value > 0 ? Math.round(100 + 135 * intensity) : 0;
+      }
+    }
+    context.putImageData(pixels, 0, 0);
+    const [west, south, east, north] = rainfallGrid.bounds;
+    const source = map.getSource('validated-rainfall');
+    if (source) map.removeLayer('validated-rainfall-layer');
+    if (source) map.removeSource('validated-rainfall');
+    map.addSource('validated-rainfall', {
+      type: 'image',
+      url: canvas.toDataURL('image/png'),
+      coordinates: [
+        [west, north],
+        [east, north],
+        [east, south],
+        [west, south],
+      ],
+    });
+    map.addLayer({
+      id: 'validated-rainfall-layer',
+      type: 'raster',
+      source: 'validated-rainfall',
+      paint: { 'raster-opacity': 0.8, 'raster-resampling': 'nearest' },
+    });
+    map.fitBounds(
+      [
+        [west, south],
+        [east, north],
+      ],
+      { padding: 24, duration: 500 },
+    );
+    return () => {
+      if (map.getLayer('validated-rainfall-layer')) map.removeLayer('validated-rainfall-layer');
+      if (map.getSource('validated-rainfall')) map.removeSource('validated-rainfall');
+    };
+  }, [map, ready, rainfallGrid]);
   useEffect(() => {
     if (!map || !ready) return;
     map.setLayoutProperty(

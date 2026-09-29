@@ -58,7 +58,7 @@ test('mobile forecast tabs and live downscaling status are clear', async ({ page
   await expect(page.getByRole('heading', { name: 'Heavy rainfall signal' })).toBeVisible();
   await page.goto('/downscaling');
   await expect(page.getByRole('heading', { name: '5 km detail workspace' })).toBeVisible();
-  await expect(page.getByText('Awaiting trained downscaling model')).toBeVisible();
+  await expect(page.getByText('Awaiting validated rainfall model')).toBeVisible();
 });
 
 test('live screening advisory exports GeoJSON', async ({ page }) => {

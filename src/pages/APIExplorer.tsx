@@ -22,6 +22,9 @@ const liveEndpoints = [
   { id: 'forecast', path: '/forecast?event_id=LIVE-RAIN&hour=96', label: 'Forecast frame' },
   { id: 'alerts', path: '/alerts', label: 'Screening advisories' },
   { id: 'impact', path: '/impact?event_id=LIVE-RAIN&hour=96', label: 'Approximate footprint' },
+  { id: 'ml-status', path: '/ml/status', label: 'Model validation status' },
+  { id: 'ml-track', path: '/ml/track/LIVE-RAIN?hour=96', label: 'Validated graph track' },
+  { id: 'downscaled', path: '/downscaled/LIVE-RAIN?hour=96', label: 'Validated 5 km rainfall' },
 ];
 export default function APIExplorer() {
   const w = useWeather(),

@@ -3,6 +3,7 @@ node_modules/
 .uv-cache/
 .xdg/
 .tmp-trace/
+.tmp-matplotlib/
 backend/.venv/
 dist/
 .env
@@ -20,3 +21,5 @@ playwright-report/
 artifacts/
 backend/data/
 !backend/data/.gitkeep
+ml_service/artifacts/
+ml_service/data/

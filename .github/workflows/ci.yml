@@ -1,4 +1,4 @@
-name: Verify TypeScript application and API
+name: Verify application and API contracts
 
 on:
   push:
@@ -21,3 +21,12 @@ jobs:
       - run: npm test
       - run: npx playwright install --with-deps msedge
       - run: npm run test:e2e
+  ml-syntax:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python -m compileall -q -x '(\.venv|artifacts|data)' ml_service
+      - run: python -m unittest discover -s ml_service/tests

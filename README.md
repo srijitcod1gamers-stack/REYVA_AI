@@ -33,11 +33,11 @@ Restart Vite after editing `.env.local`. MapTiler browser keys are visible to si
 | `/events`, `/events/:id` | Rainfall, wind/pressure and heat screening, sampled movement table                                           |
 | `/impact`                | Approximate footprint radius and area; no fabricated population exposure                                     |
 | `/alerts`                | Read-only screening advisories with JSON and GeoJSON export; no messages sent                                |
-| `/downscaling`           | Shows live coarse input and explains why a validated 5 km output is not yet available                        |
+| `/downscaling`           | Shows coarse input and a 5 km rainfall grid only when a validated model artifact and gridded run are present |
 | `/api`                   | Interactive TypeScript Worker API explorer                                                                   |
 | `/replay`                | Explicitly simulated Amphan-inspired historical scenario                                                     |
 
-Live detection currently uses transparent weather thresholds on sampled ensemble-mean fields, rather than a trained GNN or a 30-year climatological anomaly distribution. A 5 km model cannot be represented honestly until training data, weights, physical constraints and independent validation are supplied.
+Live detection currently uses transparent weather thresholds on sampled ensemble-mean fields. The private [FastAPI model service](ml_service/README.md) contains NetCDF/GRIB2 ingestion, a conditional diffusion trainer, an event-held-out validation gate, and a DGL graph network module. No training files or validated weights are present; the service does not invent 5 km output.
 
 ## Run the TypeScript API
 
@@ -54,6 +54,8 @@ GET http://127.0.0.1:8787/api/live/risk?lat=22.57&lon=88.36&hour=96
 ```
 
 The Worker serves live `/api/events`, `/api/forecast`, `/api/risk`, `/api/live/risk`, `/api/alerts`, `/api/impact`, and `/api/trajectory/:id`. Coordinate-risk probability is `null`; a validated 5 km radius is not claimed. Set `VITE_DATA_PROVIDER=api` and `VITE_API_BASE_URL=http://127.0.0.1:8787/api` in `.env.local` to route the website through the Worker. Leave `VITE_DATA_PROVIDER` unset for the one-terminal live website, or use `demo` for offline fixtures. In `cloudflare/wrangler.toml`, `MODE="live"` is the default; `MODE="demo"` is an explicitly synthetic API mode. D1 and R2 bindings are optional for the live endpoints. For deployment, set `ALLOWED_ORIGIN` to the Pages site and configure the Pages build with the deployed Worker URL.
+
+The Worker also accepts private `ML_API_ORIGIN` and `ML_API_KEY` settings. It proxies `/api/ml/status`, `/api/ml/track/:eventId`, and `/api/downscaled/:eventId` to the Python service. D1 caches events, alerts, trajectories, and approved model metadata; apply its local migrations with `npm.cmd run db:migrate:local`. Administrative cache routes require `ADMIN_API_TOKEN`. Copy `cloudflare/.dev.vars.example` to `cloudflare/.dev.vars` for local secrets. Never place internal keys in a `VITE_` variable. In production, set `ML_API_ORIGIN` to a private HTTPS endpoint and configure `ML_API_KEY` as a Worker secret.
 
 ## Verification
 

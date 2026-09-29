@@ -7,6 +7,9 @@ import type { Coordinate, WeatherEvent } from '../../shared/types';
 interface Env {
   MODE?: 'live' | 'demo';
   ALLOWED_ORIGIN?: string;
+  ML_API_ORIGIN?: string;
+  ML_API_KEY?: string;
+  ADMIN_API_TOKEN?: string;
   WEATHER_ASSETS?: R2Bucket;
   WEATHER_DB?: D1Database;
 }
@@ -80,6 +83,15 @@ async function cacheMetadata(env: Env, path: string, body: unknown) {
           .bind(event.id, event.severity, event.region, now, JSON.stringify(event)),
       ),
     );
+    await env.WEATHER_DB.batch(
+      body.map((event: WeatherEvent) =>
+        env
+          .WEATHER_DB!.prepare(
+            'INSERT INTO trajectories (event_id, updated_at, payload) VALUES (?, ?, ?) ON CONFLICT(event_id) DO UPDATE SET updated_at=excluded.updated_at, payload=excluded.payload',
+          )
+          .bind(event.id, now, JSON.stringify(event.trajectory)),
+      ),
+    );
   }
   if (path === '/api/alerts') {
     await env.WEATHER_DB.batch(
@@ -97,6 +109,34 @@ function eventById(events: WeatherEvent[], id: string | null) {
   return id ? events.find((event) => event.id === id) : events[0];
 }
 
+function authenticated(request: Request, token?: string) {
+  return Boolean(token && request.headers.get('Authorization') === `Bearer ${token}`);
+}
+
+async function mlRequest(request: Request, env: Env, path: string): Promise<Response> {
+  if (!env.ML_API_ORIGIN || !env.ML_API_KEY)
+    return failure(request, env, 'ML service is not configured', 503);
+  const origin = new URL(env.ML_API_ORIGIN);
+  if (
+    origin.protocol !== 'https:' &&
+    !(origin.protocol === 'http:' && ['localhost', '127.0.0.1'].includes(origin.hostname))
+  )
+    return failure(request, env, 'ML service URL must use HTTPS', 503);
+  const upstream = new URL(path, `${origin.origin}/`);
+  const response = await fetch(upstream, {
+    headers: { 'X-Internal-Key': env.ML_API_KEY },
+    signal: AbortSignal.timeout(25_000),
+  });
+  return new Response(response.body, {
+    status: response.status,
+    headers: {
+      'Content-Type': response.headers.get('Content-Type') || 'application/json',
+      'Cache-Control': 'no-store',
+      ...cors(request, env),
+    },
+  });
+}
+
 async function liveApi(request: Request, env: Env, url: URL, ctx: ExecutionContext): Promise<Response> {
   const path = url.pathname;
   if (path === '/api/health')
@@ -106,12 +146,51 @@ async function liveApi(request: Request, env: Env, url: URL, ctx: ExecutionConte
       language: 'TypeScript',
       source: 'NOAA GEFS via Open-Meteo',
       forecast: '25 km ensemble mean sampled at 16 locations',
-      trained_models: false,
+      trained_models: null,
+      ml_service_configured: Boolean(env.ML_API_ORIGIN && env.ML_API_KEY),
     });
   if (path === '/api/events') {
     const events = await live.getEvents();
     ctx.waitUntil(cacheMetadata(env, path, events).catch(() => undefined));
     return json(request, env, events);
+  }
+  if (path === '/api/ml/status') {
+    const response = await mlRequest(request, env, 'v1/status');
+    if (response.ok && env.WEATHER_DB) {
+      const status = (await response.clone().json()) as {
+        model?: {
+          ready?: boolean;
+          method?: string;
+          checkpoint_sha256?: string;
+          trained_at?: string;
+        };
+      };
+      const model = status.model;
+      if (model?.ready && model.checkpoint_sha256 && model.trained_at)
+        ctx.waitUntil(
+          env.WEATHER_DB.prepare(
+            'INSERT INTO model_runs (id, initialized_at, model_name, source, status, metadata_json) VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT(id) DO UPDATE SET status=excluded.status, metadata_json=excluded.metadata_json',
+          )
+            .bind(
+              model.checkpoint_sha256,
+              model.trained_at,
+              model.method || 'conditional DDPM',
+              'validated local artifact',
+              'validated',
+              JSON.stringify(status),
+            )
+            .run()
+            .catch(() => undefined),
+        );
+    }
+    return response;
+  }
+  if (path.startsWith('/api/ml/track/')) {
+    const id = path.slice('/api/ml/track/'.length);
+    if (!/^[A-Za-z0-9_-]{1,80}$/.test(id)) return failure(request, env, 'Invalid event ID', 400);
+    const hour = forecastHour(url);
+    if (hour === null) return failure(request, env, 'hour must be an integer from 72 to 240', 400);
+    return mlRequest(request, env, `v1/track/${id}?hour=${hour}`);
   }
   const events = await live.getEvents();
   if (path.startsWith('/api/events/')) {
@@ -127,8 +206,19 @@ async function liveApi(request: Request, env: Env, url: URL, ctx: ExecutionConte
     ctx.waitUntil(cacheMetadata(env, path, alerts).catch(() => undefined));
     return json(request, env, alerts);
   }
-  if (path === '/api/downscaled/WX-024' || path.startsWith('/api/downscaled/'))
-    return failure(request, env, 'A validated 5 km downscaling model is not connected', 501);
+  if (path.startsWith('/api/downscaled/')) {
+    const id = path.slice('/api/downscaled/'.length);
+    if (!/^[A-Za-z0-9_-]{1,80}$/.test(id)) return failure(request, env, 'Invalid event ID', 400);
+    const hour = forecastHour(url);
+    if (hour === null) return failure(request, env, 'hour must be an integer from 72 to 240', 400);
+    const event = eventById(events, id);
+    if (!event) return failure(request, env, 'Event not found', 404);
+    return mlRequest(
+      request,
+      env,
+      `v1/downscaled/${id}?hour=${hour}&lat=${event.centroid[1]}&lon=${event.centroid[0]}`,
+    );
+  }
   const hour = forecastHour(url);
   if (hour === null) return failure(request, env, 'hour must be an integer from 72 to 240', 400);
   const event = eventById(events, url.searchParams.get('event_id'));
@@ -185,8 +275,24 @@ export default {
         },
       });
     if (request.method !== 'GET') return failure(request, env, 'Read-only API', 405);
+    if (url.pathname.startsWith('/api/admin/')) {
+      if (!authenticated(request, env.ADMIN_API_TOKEN))
+        return failure(request, env, 'Unauthorized', 401);
+      if (!env.WEATHER_DB) return failure(request, env, 'D1 is not configured', 503);
+      const table = url.pathname.slice('/api/admin/'.length);
+      if (!['events', 'alerts', 'trajectories', 'model-runs'].includes(table))
+        return failure(request, env, 'Endpoint not found', 404);
+      const query =
+        table === 'model-runs'
+          ? 'SELECT id, initialized_at, model_name, source, status, metadata_json FROM model_runs ORDER BY initialized_at DESC LIMIT 100'
+          : `SELECT payload FROM ${table} ORDER BY updated_at DESC LIMIT 100`;
+      const rows = await env.WEATHER_DB.prepare(query).all();
+      return json(request, env, rows.results);
+    }
     if (url.pathname.startsWith('/api/assets/')) return asset(request, env, url);
     if (url.pathname === '/api/cache/events' || url.pathname === '/api/cache/alerts') {
+      if (!authenticated(request, env.ADMIN_API_TOKEN))
+        return failure(request, env, 'Unauthorized', 401);
       if (!env.WEATHER_DB) return failure(request, env, 'D1 cache is not configured', 503);
       const table = url.pathname.endsWith('events') ? 'events' : 'alerts';
       const rows = await env.WEATHER_DB.prepare(

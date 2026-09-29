@@ -1,0 +1,22 @@
+[project]
+name = "weather-intelligence-ml"
+version = "0.1.0"
+requires-python = ">=3.11,<3.14"
+dependencies = [
+  "fastapi>=0.115,<1",
+  "uvicorn>=0.30,<1",
+  "numpy>=1.26,<2",
+  "xarray>=2025.1",
+  "dask[array]>=2025.1",
+  "netcdf4>=1.7",
+  "cfgrib>=0.9.15",
+  "metpy>=1.6",
+  "torch>=2.5",
+  "diffusers>=0.32,<1",
+]
+
+[project.optional-dependencies]
+test = ["pytest>=8", "httpx>=0.27"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

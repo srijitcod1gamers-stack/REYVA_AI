@@ -2,7 +2,7 @@ import { lazy, Suspense, useEffect, useState } from 'react';
 import { Check, Download, FlaskConical, Link2, MoveHorizontal } from 'lucide-react';
 import { provider } from '../services/weather';
 import { useWeather } from '../providers/WeatherProvider';
-import type { DownscalingResult } from '../../shared/types';
+import type { DownscalingResult, ValidatedRainfallGrid } from '../../shared/types';
 import { physicsMetrics } from '../../shared/fixtures';
 import { DemoTag, PageHeading, SectionLabel } from '../components/ui/Primitives';
 import { download } from '../utils/format';
@@ -194,13 +194,57 @@ export default function Downscaling() {
 }
 function LiveDownscaling() {
   const w = useWeather();
+  const [grid, setGrid] = useState<ValidatedRainfallGrid | null>(null);
+  const [message, setMessage] = useState('Checking model availability…');
+  useEffect(() => {
+    const controller = new AbortController();
+    setGrid(null);
+    if (w.selected.type !== 'rainfall') {
+      setMessage(
+        'The current model path supports accumulated rainfall only. Select the rainfall event.',
+      );
+      return () => controller.abort();
+    }
+    const base = import.meta.env.VITE_API_BASE_URL || 'http://127.0.0.1:8787/api';
+    fetch(`${base}/downscaled/${encodeURIComponent(w.selected.id)}?hour=${w.hour}`, {
+      signal: controller.signal,
+    })
+      .then(async (response) => {
+        const body = await response.json();
+        if (!response.ok)
+          throw new Error(body.error || body.detail || `Model service returned ${response.status}`);
+        return body as ValidatedRainfallGrid;
+      })
+      .then((result) => {
+        if (result.width !== 64 || result.height !== 64 || result.validation.cases < 2)
+          throw new Error('Model response did not include a validated 5 km grid');
+        setGrid(result);
+        setMessage('');
+      })
+      .catch((error) => {
+        if (!controller.signal.aborted)
+          setMessage(error instanceof Error ? error.message : 'Model unavailable');
+      });
+    return () => controller.abort();
+  }, [w.selected.id, w.selected.type, w.hour]);
   return (
     <div className="page downscaling-page">
       <PageHeading
         eyebrow="FROM GLOBAL ENSEMBLE TO LOCAL RISK"
         title="5 km detail workspace"
         description="Inspect the live coarse ensemble signal and the requirements for a validated high-resolution forecast."
-        actions={<DemoTag>AI MODEL NOT CONNECTED</DemoTag>}
+        actions={
+          grid ? (
+            <button
+              className="secondary-button"
+              onClick={() => download('validated-rainfall-grid.json', grid)}
+            >
+              <Download size={14} /> Export grid
+            </button>
+          ) : (
+            <DemoTag>VALIDATED MODEL REQUIRED</DemoTag>
+          )
+        }
       />
       <div className="comparison-maps">
         <div className="comparison-map panel">
@@ -222,25 +266,39 @@ function LiveDownscaling() {
           <div className="comparison-map-title">
             <div>
               <span className="eyebrow mint">5 KM OUTPUT</span>
-              <h3>Awaiting trained downscaling model</h3>
+              <h3>{grid ? 'Validated rainfall field' : 'Awaiting validated rainfall model'}</h3>
             </div>
             <b className="mint">
               5 <small>km</small>
             </b>
           </div>
-          <div className="empty-state">
-            <FlaskConical size={32} />
-            <p>
-              A finer grid cannot be inferred from this sparse sample alone. Connect licensed
-              high-resolution training data, trained model weights and independent validation before
-              displaying 5 km risk values.
-            </p>
-          </div>
+          {grid ? (
+            <Suspense fallback={<div className="loading-line" />}>
+              <MapCanvas compact rainfallGrid={grid} />
+            </Suspense>
+          ) : (
+            <div className="empty-state" role="status">
+              <FlaskConical size={32} />
+              <p>{message}</p>
+            </div>
+          )}
         </div>
       </div>
       <div className="panel info-note">
-        Current live input: {w.selected.provenance.source}. This page deliberately avoids inventing
-        diffusion output or validation scores.
+        {grid ? (
+          <>
+            {grid.method} · {grid.source} · {grid.resolution_degrees}° grid · {grid.accumulation_hours}
+            -hour rainfall valid {grid.valid_time}. Held-out MAE{' '}
+            {grid.validation.model_mae_mm.toFixed(1)} mm versus interpolation{' '}
+            {grid.validation.baseline_mae_mm.toFixed(1)} mm across {grid.validation.cases} cases. This is
+            accumulated rainfall, not a flood probability.
+          </>
+        ) : (
+          <>
+            Current live input: {w.selected.provenance.source}. A validated checkpoint and gridded
+            forecast input are required to display 5 km output.
+          </>
+        )}
       </div>
     </div>
   );

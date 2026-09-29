@@ -5,10 +5,15 @@ import worker from '../../cloudflare/src/worker';
 afterEach(() => vi.unstubAllGlobals());
 
 test('TypeScript API serves live forecast screening without invented probabilities', async () => {
+  const mlRequests: URL[] = [];
   vi.stubGlobal(
     'fetch',
     vi.fn(async (input: URL | RequestInfo) => {
       const url = new URL(String(input));
+      if (url.hostname === 'ml.example') {
+        mlRequests.push(url);
+        return new Response(JSON.stringify({ model: { ready: false } }), { status: 200 });
+      }
       const lats = (url.searchParams.get('latitude') || '').split(',').map(Number);
       const lons = (url.searchParams.get('longitude') || '').split(',').map(Number);
       const start = Date.parse('2026-09-29T00:00:00Z');
@@ -66,5 +71,29 @@ test('TypeScript API serves live forecast screening without invented probabiliti
   expect(risk.probability).toBeNull();
   expect(risk.provenance.kind).toBe('forecast');
   expect((await worker.fetch(request('/api/risk?lat=100&lon=88'), env, context)).status).toBe(400);
-  expect((await worker.fetch(request('/api/downscaled/LIVE-RAIN'), env, context)).status).toBe(501);
+  expect((await worker.fetch(request('/api/downscaled/LIVE-RAIN'), env, context)).status).toBe(503);
+  expect((await worker.fetch(request('/api/admin/events'), env, context)).status).toBe(401);
+  const mlEnv = {
+    ...env,
+    ML_API_ORIGIN: 'https://ml.example',
+    ML_API_KEY: 'server-only-key',
+    ADMIN_API_TOKEN: 'admin-only-key',
+  };
+  const mlResponse = await worker.fetch(request('/api/ml/status'), mlEnv, context);
+  expect(mlResponse.status).toBe(200);
+  expect(await mlResponse.json()).toEqual({ model: { ready: false } });
+  const gridResponse = await worker.fetch(request('/api/downscaled/LIVE-RAIN?hour=96'), mlEnv, context);
+  expect(gridResponse.status).toBe(200);
+  expect(mlRequests.at(-1)?.pathname).toBe('/v1/downscaled/LIVE-RAIN');
+  expect(mlRequests.at(-1)?.searchParams.get('hour')).toBe('96');
+  expect(mlRequests.at(-1)?.searchParams.has('lat')).toBe(true);
+  expect(mlRequests.at(-1)?.searchParams.has('lon')).toBe(true);
+  expect((await worker.fetch(request('/api/ml/track/LIVE-RAIN?hour=96'), mlEnv, context)).status).toBe(
+    200,
+  );
+  expect(mlRequests.at(-1)?.pathname).toBe('/v1/track/LIVE-RAIN');
+  expect((await worker.fetch(request('/api/downscaled/LIVE-RAIN?hour=63'), mlEnv, context)).status).toBe(
+    400,
+  );
+  expect((await worker.fetch(request('/api/downscaled/%2e%2e'), mlEnv, context)).status).toBe(404);
 });

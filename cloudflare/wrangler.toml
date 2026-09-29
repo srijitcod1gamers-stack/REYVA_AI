@@ -6,6 +6,8 @@ workers_dev = true
 [vars]
 MODE = "live"
 ALLOWED_ORIGIN = "http://127.0.0.1:5173"
+# Set ML_API_ORIGIN to your private HTTPS FastAPI endpoint for deployed inference.
+# Set ML_API_KEY and ADMIN_API_TOKEN as Worker secrets, never in this file.
 
 [[r2_buckets]]
 binding = "WEATHER_ASSETS"
