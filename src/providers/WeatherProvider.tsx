@@ -15,7 +15,7 @@ import type {
   WeatherEvent,
   WeatherVariable,
 } from '../../shared/types';
-import { provider, providerMode } from '../services/weather';
+import { provider, providerMode, replayProvider } from '../services/weather';
 import { events as replayEvents } from '../../shared/fixtures';
 import { clamp } from '../../shared/simulation';
 
@@ -111,6 +111,10 @@ export function WeatherProvider({ children }: { children: ReactNode }) {
     [],
   );
   useEffect(() => {
+    if (replay) {
+      setError(null);
+      return;
+    }
     const controller = new AbortController();
     provider
       .getEvents(controller.signal)
@@ -122,7 +126,7 @@ export function WeatherProvider({ children }: { children: ReactNode }) {
         if (!controller.signal.aborted) setError(String(e.message));
       });
     return () => controller.abort();
-  }, [revision]);
+  }, [replay, revision]);
   useEffect(() => {
     if (providerMode !== 'live') return;
     const interval = setInterval(() => setRevision((value) => value + 1), 30 * 60_000);
@@ -131,7 +135,8 @@ export function WeatherProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     if (!selected) return;
     const controller = new AbortController();
-    provider
+    const activeProvider = replay ? replayProvider : provider;
+    activeProvider
       .getFrame(selected, hour, replay, controller.signal)
       .then((data) => {
         if (!controller.signal.aborted) {
@@ -150,7 +155,8 @@ export function WeatherProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     if (!locationQuery || !selected) return;
     const controller = new AbortController();
-    provider
+    const activeProvider = replay ? replayProvider : provider;
+    activeProvider
       .getRisk(locationQuery.coordinates, locationQuery.name, selected, hour, replay, controller.signal)
       .then((data) => {
         if (!controller.signal.aborted) setLocation(data);

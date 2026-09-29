@@ -73,6 +73,7 @@ export class ApiWeatherProvider implements WeatherDataProvider {
     return this.request<DownscalingResult[]>('/downscaled/WX-024', signal);
   }
 }
+export const replayProvider = new MockWeatherProvider();
 export const provider =
   import.meta.env.VITE_DATA_PROVIDER === 'api'
     ? new ApiWeatherProvider(import.meta.env.VITE_API_BASE_URL || '/api')

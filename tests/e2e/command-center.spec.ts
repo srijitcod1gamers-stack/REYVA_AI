@@ -61,6 +61,16 @@ test('mobile forecast tabs and live downscaling status are clear', async ({ page
   await expect(page.getByText('Awaiting validated rainfall model')).toBeVisible();
 });
 
+test('historical replay stays local when the live API is selected', async ({ page }) => {
+  await page.route('http://127.0.0.1:8787/api/**', async (route) => {
+    await route.fulfill({ status: 404, contentType: 'application/json', body: '{"error":"offline"}' });
+  });
+  await page.goto('/replay');
+  await expect(page.getByRole('heading', { name: 'Historical event replay' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Cyclone Amphan' })).toBeVisible();
+  await expect(page.getByRole('alert')).toHaveCount(0);
+});
+
 test('live screening advisory exports GeoJSON', async ({ page }) => {
   await page.goto('/alerts');
   await expect(page.getByRole('heading', { name: 'Alert center' })).toBeVisible();
