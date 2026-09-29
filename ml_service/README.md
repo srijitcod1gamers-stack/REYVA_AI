@@ -2,6 +2,50 @@
 
 This FastAPI service is private. The React website calls the TypeScript Cloudflare Worker; the Worker calls this service over HTTPS using `ML_API_KEY`. No forecast or model is bundled. The service returns 503 until a checkpoint, matching validation report, and live gridded forecast catalog exist.
 
+## Public SIH data route
+
+The repository now includes a reproducible public-data pipeline for the selected SIH route:
+
+```text
+NOAA GEFSv12 reforecasts + CHIRPS v3 observations
+  -> month-matched 2000-2019 model/observed climatology
+  -> EFI anomaly fields + CHIRPS 95th-percentile masks
+  -> event-separated tracker/downscaler catalogs
+  -> held-out validation gates
+  -> current NOAA GEFS gridded live catalog
+  -> FastAPI -> TypeScript Worker -> dashboard
+```
+
+The default [public manifest](public-manifest.json) contains twelve named Indian Ocean severe-weather evaluation windows. They are 24-hour rainfall verification windows, not asserted landfall timestamps. The pipeline uses the same five members (`c00`, `p01`-`p04`) in the retrospective and live archives. It sums all NOAA interval messages in each 24-hour window instead of treating a six-hour `90-96 hour acc` message as a daily total.
+
+CHIRPS is a land precipitation product. Its ocean NoData cells are carried as an explicit validity mask; downscaler loss, downscaler metrics and tracker metrics use only CHIRPS-covered land cells. The pipeline does not convert ocean NoData to zero rainfall, and approved reports state this validation scope.
+
+Install Python 3.12 dependencies and inspect the exact workload before downloading:
+
+```powershell
+uv sync --project ml_service --extra test --python 3.12
+npm.cmd run ml:plan
+```
+
+Prepare the 20-year, month-matched climatology for all twelve calendar months; then the labelled event files and live forecast catalog:
+
+```powershell
+ml_service/.venv/Scripts/python.exe -m ml_service.public_data prepare-climatology
+ml_service/.venv/Scripts/python.exe -m ml_service.public_data prepare-events
+ml_service/.venv/Scripts/python.exe -m ml_service.public_data prepare-live --leads 72,96,120,144,168,192,216,240
+```
+
+`npm.cmd run ml:prepare` runs those three stages in order. Downloads resume at completed monthly/event outputs unless `--force` is passed. Raw GRIB messages are range-requested through NOAA `.idx` byte offsets; CHIRPS is read as a Cloud Optimized GeoTIFF window for `[68E, 6N, 98E, 36N]`. Generated data and catalogs stay under `ml_service/data/public/` and are ignored by Git.
+
+Train only after both catalogs exist:
+
+```powershell
+ml_service/.venv/Scripts/python.exe -m ml_service.train --catalog ml_service/data/public/training-catalog.json --output ml_service/artifacts --epochs 20
+ml_service/.venv/Scripts/python.exe -m ml_service.train_tracker --catalog ml_service/data/public/tracking-catalog.json --output ml_service/artifacts --epochs 20
+```
+
+An artifact remains unusable if it fails either held-out gate. A GPU is strongly recommended for the diffusion training. The selected public sources are [NOAA GEFS reforecasts](https://registry.opendata.aws/noaa-gefs-reforecast/) and [CHIRPS v3](https://chc.ucsb.edu/data/chirps3). CHIRPS-GEFS may be displayed later as an external comparison product, but it is not used or labelled as REYVA's trained output.
+
 ## Data contract
 
 Training uses `training-catalog.example.json` as a schema. Supply at least ten distinct historical events, each with a coarse NetCDF or GRIB2 forecast and a matching 0.05° observation/reference NetCDF or GRIB2. Each pair must cover the same valid time and accumulation window, use a recognized precipitation depth unit (`mm`, `kg m-2`, or `m`), and include 1D latitude/longitude coordinates. The target must be approximately 0.05° and strictly finer than the input. ERA5 alone does not qualify as a 5 km target.

@@ -18,7 +18,9 @@
     "worker:dev": "node node_modules/wrangler/wrangler-dist/cli.js dev --config cloudflare/wrangler.toml",
     "worker:deploy": "node node_modules/wrangler/wrangler-dist/cli.js deploy --config cloudflare/wrangler.toml",
     "pages:deploy": "npm run build && node node_modules/wrangler/wrangler-dist/cli.js pages deploy dist --project-name reyva-ai",
-    "db:migrate:local": "node node_modules/wrangler/wrangler-dist/cli.js d1 migrations apply weather-intelligence --local --config cloudflare/wrangler.toml"
+    "db:migrate:local": "node node_modules/wrangler/wrangler-dist/cli.js d1 migrations apply weather-intelligence --local --config cloudflare/wrangler.toml",
+    "ml:plan": "ml_service/.venv/Scripts/python.exe -m ml_service.public_data plan",
+    "ml:prepare": "ml_service/.venv/Scripts/python.exe -m ml_service.public_data prepare-all"
   },
   "dependencies": {
     "@deck.gl/core": "^9.1.0",

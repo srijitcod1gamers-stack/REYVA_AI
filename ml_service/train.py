@@ -35,15 +35,16 @@ def load_samples(catalog: Path):
             or not 1 <= int(sample["accumulation_hours"]) <= 240
         ):
             raise ValueError("Each sample needs a valid time, accumulation window and day 3-10 lead")
-        baseline, truth, _ = paired_grids(
+        baseline, truth, _, valid = paired_grids(
             sample["forecast"], sample["observation"],
             sample["forecast_variable"], sample["observation_variable"],
             sample["valid_time"],
             sample.get("bounds"),
+            return_mask=True,
         )
         if min(baseline.shape) < 64:
             raise ValueError("Each paired grid must be at least 64 by 64 cells")
-        prepared.append((sample["event_id"], baseline, truth))
+        prepared.append((sample["event_id"], baseline, truth, valid))
     return prepared, records
 
 
@@ -51,25 +52,34 @@ def patch(array: np.ndarray, y: int, x: int):
     return array[y : y + 64, x : x + 64]
 
 
+def best_patch(mask: np.ndarray):
+    """Return the 64x64 window with the most observed cells."""
+    integral = np.pad(mask.astype(np.int32), ((1, 0), (1, 0))).cumsum(0).cumsum(1)
+    counts = integral[64:, 64:] - integral[:-64, 64:] - integral[64:, :-64] + integral[:-64, :-64]
+    return tuple(int(value) for value in np.unravel_index(np.argmax(counts), counts.shape))
+
+
 def score(model, scheduler, rows, device, output_cap_mm):
     baseline_errors = []
     model_errors = []
     baseline_peaks = []
     model_peaks = []
-    for index, (_, baseline, truth) in enumerate(rows):
-        y = (baseline.shape[0] - 64) // 2
-        x = (baseline.shape[1] - 64) // 2
+    for index, (_, baseline, truth, valid) in enumerate(rows):
+        y, x = best_patch(valid)
         coarse = patch(baseline, y, x)
         reference = patch(truth, y, x)
+        observed = patch(valid, y, x)
         prediction = generate(
             model, scheduler,
             torch.from_numpy(coarse)[None, None].to(device), seed=index, max_mm=output_cap_mm,
         )[0, 0].cpu().numpy()
-        baseline_errors.extend((coarse - reference).ravel().tolist())
-        model_errors.extend((prediction - reference).ravel().tolist())
-        reference_peak = float(np.percentile(reference, 99))
-        baseline_peaks.append(abs(float(np.percentile(coarse, 99)) - reference_peak))
-        model_peaks.append(abs(float(np.percentile(prediction, 99)) - reference_peak))
+        if observed.sum() < 512:
+            raise ValueError("Held-out patch has too few CHIRPS-covered land cells")
+        baseline_errors.extend((coarse[observed] - reference[observed]).ravel().tolist())
+        model_errors.extend((prediction[observed] - reference[observed]).ravel().tolist())
+        reference_peak = float(np.percentile(reference[observed], 99))
+        baseline_peaks.append(abs(float(np.percentile(coarse[observed], 99)) - reference_peak))
+        model_peaks.append(abs(float(np.percentile(prediction[observed], 99)) - reference_peak))
     return {
         "baseline_mae_mm": float(np.mean(np.abs(baseline_errors))),
         "model_mae_mm": float(np.mean(np.abs(model_errors))),
@@ -97,7 +107,7 @@ def train(catalog: Path, output: Path, epochs: int):
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     output_cap_mm = max(
         1.0,
-        float(np.percentile(np.concatenate([row[2].ravel() for row in train_rows]), 99.9) * 1.25),
+        float(np.percentile(np.concatenate([row[2][row[3]] for row in train_rows]), 99.9) * 1.25),
     )
     model = create_model().to(device)
     scheduler = create_scheduler()
@@ -108,22 +118,29 @@ def train(catalog: Path, output: Path, epochs: int):
     for epoch in range(epochs):
         rng.shuffle(train_rows)
         model.train()
-        for _, baseline, truth in train_rows:
-            y = rng.randrange(0, baseline.shape[0] - 63)
-            x = rng.randrange(0, baseline.shape[1] - 63)
+        for _, baseline, truth, valid in train_rows:
+            for _ in range(100):
+                y = rng.randrange(0, baseline.shape[0] - 63)
+                x = rng.randrange(0, baseline.shape[1] - 63)
+                if patch(valid, y, x).mean() >= 0.5:
+                    break
+            else:
+                y, x = best_patch(valid)
             coarse = torch.from_numpy(patch(baseline, y, x))[None, None].to(device)
             target = torch.from_numpy(patch(truth, y, x))[None, None].to(device)
+            observed = torch.from_numpy(patch(valid, y, x).astype(np.float32))[None, None].to(device)
             normalized = torch.log1p(target) / 5
             condition = torch.log1p(coarse) / 5
             noise = torch.randn_like(normalized)
             timestep = torch.randint(0, scheduler.config.num_train_timesteps, (1,), device=device)
             noisy = scheduler.add_noise(normalized, noise, timestep)
             predicted_noise = model(torch.cat((noisy, condition), dim=1), timestep).sample
-            high = (target >= torch.quantile(target, 0.95)).float()
-            denoising = ((predicted_noise - noise).square() * (1 + high * 2)).mean()
+            high = (target >= torch.quantile(target[observed.bool()], 0.95)).float()
+            weights = observed * (1 + high * 2)
+            denoising = ((predicted_noise - noise).square() * weights).sum() / weights.sum().clamp_min(1)
             alpha = scheduler.alphas_cumprod[timestep].reshape(1, 1, 1, 1)
             estimated = (noisy - (1 - alpha).sqrt() * predicted_noise) / alpha.sqrt()
-            mass = (estimated.mean() - normalized.mean()).abs()
+            mass = ((estimated - normalized) * observed).sum().abs() / observed.sum().clamp_min(1)
             loss = denoising + 0.05 * mass
             optimizer.zero_grad()
             loss.backward()
@@ -149,6 +166,7 @@ def train(catalog: Path, output: Path, epochs: int):
         "resolution_degrees": 0.05,
         "output_cap_mm": output_cap_mm,
         "method": "conditional DDPM; event-held-out validation",
+        "validation_scope": "CHIRPS-covered land cells",
         "train_events": sorted(train_ids),
         "validation_events": sorted(val_ids),
         "test_events": sorted(test_ids),

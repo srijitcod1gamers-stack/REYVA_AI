@@ -42,6 +42,22 @@ class DataContractTests(unittest.TestCase):
             self.assertEqual(baseline.shape, (41, 41))
             self.assertEqual(coordinates.attrs["units"], "mm")
 
+            with xr.open_dataset(target) as dataset:
+                masked = dataset.load()
+            masked["rain"].values[:8, :8] = np.nan
+            masked.to_netcdf(target, mode="w")
+            _, truth, _, valid = paired_grids(
+                str(coarse),
+                str(target),
+                "rain",
+                "rain",
+                "2020-05-20T00:00:00Z",
+                [0, 0, 2, 2],
+                return_mask=True,
+            )
+            self.assertFalse(valid[:8, :8].any())
+            self.assertTrue(np.isfinite(truth).all())
+
             with self.assertRaisesRegex(ValueError, "valid times"):
                 paired_grids(
                     str(coarse), str(target), "rain", "rain", "2020-05-21T00:00:00Z", [0, 0, 2, 2]

@@ -1,0 +1,20 @@
+{
+  "bounds": [68.0, 6.0, 98.0, 36.0],
+  "climatology_start_year": 2000,
+  "climatology_months": [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12],
+  "climatology_days": [5, 15, 25],
+  "events": [
+    {"event_id": "fani-2019", "initialization": "2019-04-29T00:00:00Z", "lead_hours": 96, "accumulation_hours": 24},
+    {"event_id": "gaja-2018", "initialization": "2018-11-12T00:00:00Z", "lead_hours": 96, "accumulation_hours": 24},
+    {"event_id": "ockhi-2017", "initialization": "2017-11-27T00:00:00Z", "lead_hours": 96, "accumulation_hours": 24},
+    {"event_id": "vardah-2016", "initialization": "2016-12-08T00:00:00Z", "lead_hours": 96, "accumulation_hours": 24},
+    {"event_id": "hudhud-2014", "initialization": "2014-10-08T00:00:00Z", "lead_hours": 96, "accumulation_hours": 24},
+    {"event_id": "phailin-2013", "initialization": "2013-10-08T00:00:00Z", "lead_hours": 96, "accumulation_hours": 24},
+    {"event_id": "nilam-2012", "initialization": "2012-10-27T00:00:00Z", "lead_hours": 96, "accumulation_hours": 24},
+    {"event_id": "thane-2011", "initialization": "2011-12-26T00:00:00Z", "lead_hours": 96, "accumulation_hours": 24},
+    {"event_id": "laila-2010", "initialization": "2010-05-16T00:00:00Z", "lead_hours": 96, "accumulation_hours": 24},
+    {"event_id": "aila-2009", "initialization": "2009-05-21T00:00:00Z", "lead_hours": 96, "accumulation_hours": 24},
+    {"event_id": "nargis-2008", "initialization": "2008-04-28T00:00:00Z", "lead_hours": 96, "accumulation_hours": 24},
+    {"event_id": "sidr-2007", "initialization": "2007-11-11T00:00:00Z", "lead_hours": 96, "accumulation_hours": 24}
+  ]
+}

@@ -44,7 +44,7 @@ def open_field(
         return field
 
 
-def precipitation_mm(field: xr.DataArray) -> xr.DataArray:
+def precipitation_mm(field: xr.DataArray, allow_missing: bool = False) -> xr.DataArray:
     unit = str(field.attrs.get("units", "")).strip()
     if unit in {"mm", "kg m-2", "kg/m^2", "kg m**-2"}:
         factor = 1.0
@@ -53,7 +53,8 @@ def precipitation_mm(field: xr.DataArray) -> xr.DataArray:
     else:
         raise ValueError(f"Unsupported precipitation unit {unit!r}; provide accumulated depth")
     values = np.asarray(field.values, dtype=np.float32) * factor
-    if not np.isfinite(values).all() or (values < 0).any():
+    finite = np.isfinite(values)
+    if (not allow_missing and not finite.all()) or (values[finite] < 0).any():
         raise ValueError("Precipitation contains missing, infinite or negative values")
     return xr.DataArray(values, coords=field.coords, dims=field.dims, attrs={"units": "mm"})
 
@@ -75,9 +76,10 @@ def paired_grids(
     target_variable: str,
     expected_valid_time: str,
     bounds: tuple[float, float, float, float] | list[float] | None = None,
+    return_mask: bool = False,
 ):
     coarse = precipitation_mm(open_field(input_path, input_variable, bounds))
-    target = precipitation_mm(open_field(target_path, target_variable, bounds))
+    target = precipitation_mm(open_field(target_path, target_variable, bounds), allow_missing=True)
     expected = np.datetime64(expected_valid_time.replace("Z", ""), "s")
     if valid_time(coarse) != expected or valid_time(target) != expected:
         raise ValueError("Forecast and reference valid times must match the catalog")
@@ -97,4 +99,13 @@ def paired_grids(
     baseline = coarse.interp(lat=target.lat, lon=target.lon, method="linear")
     if not np.isfinite(baseline.values).all():
         raise ValueError("Interpolation created missing values")
-    return np.asarray(baseline.values, dtype=np.float32), np.asarray(target.values, dtype=np.float32), target
+    mask = np.isfinite(target.values)
+    if mask.mean() < 0.1:
+        raise ValueError("Reference grid has less than 10% valid observed coverage")
+    truth = np.where(mask, target.values, baseline.values)
+    result = (
+        np.asarray(baseline.values, dtype=np.float32),
+        np.asarray(truth, dtype=np.float32),
+        target,
+    )
+    return (*result, mask) if return_mask else result

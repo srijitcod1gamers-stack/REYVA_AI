@@ -45,6 +45,8 @@ Restart Vite after editing `.env.local`. MapTiler browser keys are visible to si
 
 Live detection currently uses transparent weather thresholds on sampled ensemble-mean fields. The private [FastAPI model service](ml_service/README.md) contains NetCDF/GRIB2 ingestion, a conditional diffusion trainer, an event-held-out validation gate, and a DGL graph network module. No training files or validated weights are present; the service does not invent 5 km output.
 
+The selected SIH training route is now implemented as a reproducible public-data preparation command: NOAA GEFSv12 reforecasts are paired with CHIRPS v3 0.05-degree daily observations, month-matched 2000-2019 climatologies produce EFI and observed extreme masks, and current gridded GEFS fields produce the private live catalog. Run `npm.cmd run ml:plan` to inspect it, then follow [the model-service instructions](ml_service/README.md#public-sih-data-route). The dashboard will continue to report that ML is unconfigured until trained artifacts pass the held-out gates and the private service is deployed.
+
 ## Run the TypeScript API
 
 In a second terminal, run the Cloudflare Worker locally:

@@ -10,6 +10,7 @@ from pathlib import Path
 import numpy as np
 import torch
 import torch.nn.functional as F
+import xarray as xr
 
 from .data import open_field, valid_time
 from .tracking import SphericalTracker, spherical_grid_graph
@@ -22,21 +23,33 @@ def prepare(sample: dict):
         for item in sample["fields"]
     ]
     mask = open_field(sample["mask"]["path"], sample["mask"]["variable"], sample.get("bounds"))
+    validity_spec = sample.get("valid_mask")
+    validity = (
+        open_field(validity_spec["path"], validity_spec["variable"], sample.get("bounds"))
+        if validity_spec
+        else xr.ones_like(mask)
+    )
     expected = np.datetime64(str(sample["valid_time"]).replace("Z", ""), "s")
-    if any(valid_time(array) != expected for array in [*arrays, mask]):
+    if any(valid_time(array) != expected for array in [*arrays, mask, validity]):
         raise ValueError("Tracker fields and label mask must share valid time")
     if any(
         not np.array_equal(array.lat, mask.lat) or not np.array_equal(array.lon, mask.lon)
-        for array in arrays
+        for array in [*arrays, validity]
     ):
         raise ValueError("Tracker fields and label mask must share the same grid")
     if mask.size > 20_000 or len(arrays) < 2:
         raise ValueError("Use 2+ atmospheric fields and a regional grid of at most 20,000 cells")
     features = np.stack([np.asarray(array.values, dtype=np.float32) for array in arrays], axis=-1)
     labels = np.asarray(mask.values, dtype=np.float32)
-    if not np.isfinite(features).all() or not np.isin(labels, [0, 1]).all():
-        raise ValueError("Tracker features must be finite and labels must be binary")
-    return features, labels, np.asarray(mask.lat), np.asarray(mask.lon)
+    valid = np.asarray(validity.values, dtype=np.float32)
+    if (
+        not np.isfinite(features).all()
+        or not np.isin(labels, [0, 1]).all()
+        or not np.isin(valid, [0, 1]).all()
+        or valid.sum() < 100
+    ):
+        raise ValueError("Tracker features must be finite; labels/mask must be binary with observed cells")
+    return features, labels, valid.astype(bool), np.asarray(mask.lat), np.asarray(mask.lon)
 
 
 def f1(predicted, truth):
@@ -50,12 +63,12 @@ def evaluate(model, rows, means, scales, threshold):
     model.eval()
     scores, baselines = [], []
     with torch.no_grad():
-        for _, features, labels, lat, lon in rows:
+        for _, features, labels, valid, lat, lon in rows:
             graph = spherical_grid_graph(lat, lon)
             normalized = torch.from_numpy(((features - means) / scales).reshape(-1, features.shape[-1]))
             probabilities = torch.sigmoid(model(graph, normalized)).numpy().reshape(labels.shape)
-            scores.append(f1(probabilities >= 0.5, labels == 1))
-            baselines.append(f1(features[..., 0] >= threshold, labels == 1))
+            scores.append(f1(probabilities[valid] >= 0.5, labels[valid] == 1))
+            baselines.append(f1(features[..., 0][valid] >= threshold, labels[valid] == 1))
     return {"f1": float(np.mean(scores)), "threshold_baseline_f1": float(np.mean(baselines)), "cases": len(rows)}
 
 
@@ -75,7 +88,7 @@ def train(catalog: Path, output: Path, epochs: int):
     ]
     if min(len(group) for group in groups) < 2:
         raise ValueError("At least two samples are required in each event-held-out split")
-    training_values = np.concatenate([row[1].reshape(-1, len(fields)) for row in groups[0]])
+    training_values = np.concatenate([row[1][row[3]] for row in groups[0]])
     means = training_values.mean(axis=0)
     scales = np.maximum(training_values.std(axis=0), 1e-6)
     baseline_threshold = float(records[0]["baseline_threshold"])
@@ -89,12 +102,13 @@ def train(catalog: Path, output: Path, epochs: int):
     for epoch in range(epochs):
         rng.shuffle(groups[0])
         model.train()
-        for _, features, labels, lat, lon in groups[0]:
+        for _, features, labels, valid, lat, lon in groups[0]:
             graph = spherical_grid_graph(lat, lon)
             values = torch.from_numpy(((features - means) / scales).reshape(-1, len(fields)))
             truth = torch.from_numpy(labels.reshape(-1))
+            observed = torch.from_numpy(valid.reshape(-1))
             prediction = model(graph, values)
-            loss = F.binary_cross_entropy_with_logits(prediction, truth)
+            loss = F.binary_cross_entropy_with_logits(prediction[observed], truth[observed])
             optimizer.zero_grad()
             loss.backward()
             optimizer.step()
@@ -114,6 +128,7 @@ def train(catalog: Path, output: Path, epochs: int):
         "means": means.tolist(),
         "scales": scales.tolist(),
         "baseline_threshold": baseline_threshold,
+        "validation_scope": "CHIRPS-covered land cells",
         "train_events": sorted(train_ids),
         "validation_events": sorted(validation_ids),
         "test_events": sorted(test_ids),

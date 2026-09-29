@@ -95,12 +95,17 @@ def status():
             "test": report["test"],
             "checkpoint_sha256": report["checkpoint_sha256"],
             "trained_at": report["trained_at"],
+            "validation_scope": report.get("validation_scope", "unspecified"),
         }
     except HTTPException:
         model = {"ready": False}
     try:
         tracker_report = validated_tracker(Path(os.getenv("ML_ARTIFACT_DIR", "ml_service/artifacts")))
-        tracker = {"ready": True, "test": tracker_report["test"]}
+        tracker = {
+            "ready": True,
+            "test": tracker_report["test"],
+            "validation_scope": tracker_report.get("validation_scope", "unspecified"),
+        }
     except HTTPException:
         tracker = {"ready": False}
     return {
@@ -152,7 +157,13 @@ def track(event_id: str, hour: int = Query(ge=72, le=240)):
         scores = torch.sigmoid(load_tracker(str(directory.resolve()), len(means))(graph, values))
     mask = scores.numpy().reshape(features.shape[:2]) >= 0.5
     if not mask.any():
-        return {"event_id": event_id, "hour": hour, "detected": False, "validation": report["test"]}
+        return {
+            "event_id": event_id,
+            "hour": hour,
+            "detected": False,
+            "validation": report["test"],
+            "validation_scope": report.get("validation_scope", "unspecified"),
+        }
     ys, xs = np.where(mask)
     return {
         "event_id": event_id,
@@ -170,6 +181,7 @@ def track(event_id: str, hour: int = Query(ge=72, le=240)):
             float(np.median(np.diff(first.lat.values))),
         ],
         "validation": report["test"],
+        "validation_scope": report.get("validation_scope", "unspecified"),
     }
 
 
@@ -220,6 +232,7 @@ def downscaled(
         "method": report["method"],
         "source": run["source"],
         "validation": report["test"],
+        "validation_scope": report.get("validation_scope", "unspecified"),
         "bounds": [
             float(longitudes[0] - 0.025), float(latitudes[0] - 0.025),
             float(longitudes[-1] + 0.025), float(latitudes[-1] + 0.025),

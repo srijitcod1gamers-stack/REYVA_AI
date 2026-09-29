@@ -11,7 +11,8 @@
         {"path": "ml_service/data/forecast-wind.nc", "variable": "wind_gust"},
         {"path": "ml_service/data/forecast-pressure.nc", "variable": "pressure_msl"}
       ],
-      "mask": {"path": "ml_service/data/observed-event-mask.nc", "variable": "extreme_mask"}
+      "mask": {"path": "ml_service/data/observed-event-mask.nc", "variable": "extreme_mask"},
+      "valid_mask": {"path": "ml_service/data/observation-valid-mask.nc", "variable": "valid_mask"}
     }
   ]
 }

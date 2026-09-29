@@ -10,6 +10,7 @@ dependencies = [
   "dask[array]>=2025.1",
   "netcdf4>=1.7",
   "cfgrib>=0.9.15",
+  "rasterio>=1.4,<2",
   "metpy>=1.6",
   "torch>=2.5",
   "diffusers>=0.32,<1",
