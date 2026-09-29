@@ -13,6 +13,12 @@ npm.cmd ci
 npm.cmd run dev
 ```
 
+To run the frontend and TypeScript Worker together in one terminal, use:
+
+```powershell
+npm.cmd run dev:all
+```
+
 Open <http://127.0.0.1:5173/>. The default live view needs internet access to fetch GEFS forecasts. The bundled regional geographic boundaries still load without map tiles. Click the map to request a fresh coordinate forecast. Use the Day 3–10 slider to inspect changing samples, or open `/replay` for the offline scenario.
 
 If `npm ci` reports `EPERM` while unlinking `lightningcss.win32-x64-msvc.node` on Windows, stop any running Vite, Wrangler, Playwright, or Node processes using this project, then retry. A loaded native module cannot be replaced while its process is running; OneDrive synchronization may also briefly hold the file.
