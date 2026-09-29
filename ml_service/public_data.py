@@ -11,7 +11,6 @@ import argparse
 import json
 import re
 import tempfile
-from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -244,13 +243,15 @@ def ensemble_reforecast(
     bounds: list[float],
     scratch: Path,
 ) -> xr.DataArray:
-    def fetch(member: str) -> xr.DataArray:
-        return fetch_reforecast_member(
+    # ecCodes/cfgrib uses a process-global definition scanner. Decoding GRIB
+    # members concurrently can corrupt that scanner on Windows, so keep the
+    # decode path serial and rely on resumable case caches for robustness.
+    fields = [
+        fetch_reforecast_member(
             initialization, member, lead_hour, accumulation_hours, variable, bounds, scratch / member
         )
-
-    with ThreadPoolExecutor(max_workers=len(MEMBERS)) as executor:
-        fields = list(executor.map(fetch, MEMBERS))
+        for member in MEMBERS
+    ]
     return xr.concat(fields, dim=xr.IndexVariable("number", np.arange(len(fields)))).astype(np.float32)
 
 
