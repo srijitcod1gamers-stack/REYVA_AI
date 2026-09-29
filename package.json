@@ -14,10 +14,10 @@
     "geo:prepare": "node scripts/prepare-geography.mjs",
     "test": "vitest run",
     "test:e2e": "playwright test",
-    "worker:dev": "wrangler dev --config cloudflare/wrangler.toml",
-    "worker:deploy": "wrangler deploy --config cloudflare/wrangler.toml",
-    "pages:deploy": "npm run build && wrangler pages deploy dist --project-name weather-intelligence-ai",
-    "db:migrate:local": "wrangler d1 migrations apply weather-intelligence --local --config cloudflare/wrangler.toml"
+    "worker:dev": "node node_modules/wrangler/wrangler-dist/cli.js dev --config cloudflare/wrangler.toml",
+    "worker:deploy": "node node_modules/wrangler/wrangler-dist/cli.js deploy --config cloudflare/wrangler.toml",
+    "pages:deploy": "npm run build && node node_modules/wrangler/wrangler-dist/cli.js pages deploy dist --project-name weather-intelligence-ai",
+    "db:migrate:local": "node node_modules/wrangler/wrangler-dist/cli.js d1 migrations apply weather-intelligence --local --config cloudflare/wrangler.toml"
   },
   "dependencies": {
     "@deck.gl/core": "^9.1.0",
