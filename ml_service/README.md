@@ -27,7 +27,7 @@ uv sync --project ml_service --extra test --python 3.12
 npm.cmd run ml:plan
 ```
 
-Prepare the 20-year, month-matched climatology for all twelve calendar months; then the labelled event files and live forecast catalog:
+The fast SIH manifest prepares the 20-year, month-matched climatology for May, October, November, and December, covering the valid times of all twelve configured cyclone cases. It then prepares the labelled event files and the current live forecast catalog. This reduces preparation from 720 to 240 climatology cases. Live EFI is available only when a forecast's valid month has been prepared; add the other months to `climatology_months` for year-round operation.
 
 ```powershell
 ml_service/.venv/Scripts/python.exe -m ml_service.public_data prepare-climatology

@@ -349,6 +349,11 @@ def plan(manifest: dict) -> dict:
     months = sorted({int(month) for month in manifest.get("climatology_months", event_months)})
     if not months or any(month < 1 or month > 12 for month in months):
         raise ValueError("Climatology months must be integers from 1 to 12")
+    missing_event_months = sorted(event_months - set(months))
+    if missing_event_months:
+        raise ValueError(
+            f"Climatology months do not cover event valid-time months: {missing_event_months}"
+        )
     years = list(range(int(manifest.get("climatology_start_year", 2000)), 2020))
     days = manifest.get("climatology_days", [5, 15, 25])
     cases = len(years) * len(months) * len(days)

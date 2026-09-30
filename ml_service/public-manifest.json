@@ -1,7 +1,7 @@
 {
   "bounds": [68.0, 6.0, 98.0, 36.0],
   "climatology_start_year": 2000,
-  "climatology_months": [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12],
+  "climatology_months": [5, 10, 11, 12],
   "climatology_days": [5, 15, 25],
   "events": [
     {"event_id": "fani-2019", "initialization": "2019-04-29T00:00:00Z", "lead_hours": 96, "accumulation_hours": 24},

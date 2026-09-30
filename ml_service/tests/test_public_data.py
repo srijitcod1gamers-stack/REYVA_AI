@@ -80,6 +80,20 @@ class PublicDataTests(unittest.TestCase):
         self.assertEqual(result["events"], 10)
         self.assertEqual(result["climatology_cases"], 60)
 
+    def test_plan_rejects_missing_event_valid_month(self):
+        manifest = {
+            "bounds": [68, 6, 98, 36],
+            "climatology_start_year": 2000,
+            "climatology_months": [4],
+            "climatology_days": [5, 15, 25],
+            "events": [
+                {"event_id": f"event-{index}", "initialization": "2019-04-29T00:00:00Z", "lead_hours": 96}
+                for index in range(10)
+            ],
+        }
+        with self.assertRaisesRegex(ValueError, "valid-time months"):
+            plan(manifest)
+
 
 if __name__ == "__main__":
     unittest.main()
