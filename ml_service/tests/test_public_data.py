@@ -1,6 +1,8 @@
 import unittest
 from datetime import datetime, timezone
 from http.client import RemoteDisconnected
+from pathlib import Path
+from tempfile import TemporaryDirectory
 from unittest.mock import patch
 
 import numpy as np
@@ -8,6 +10,8 @@ import xarray as xr
 
 from ml_service.public_data import (
     chirps_url,
+    download_records,
+    IndexRecord,
     _model_quantiles_on,
     operational_url,
     parse_index,
@@ -54,6 +58,35 @@ class PublicDataTests(unittest.TestCase):
             self.assertEqual(request_bytes("https://example.test/data"), b"recovered")
         self.assertEqual(opener.call_count, 2)
         sleep.assert_called_once_with(1)
+
+    def test_final_grib_record_uses_open_ended_range(self):
+        with TemporaryDirectory() as directory, patch(
+            "ml_service.public_data.request_bytes", return_value=b"record"
+        ) as request:
+            destination = Path(directory) / "field.grib2"
+            download_records(
+                "https://example.test/forecast.grib2",
+                [IndexRecord(700, ":PRMSL:", None)],
+                destination,
+            )
+            self.assertEqual(destination.read_bytes(), b"record")
+        request.assert_called_once_with("https://example.test/forecast.grib2", (700, None))
+
+    def test_open_ended_range_header(self):
+        class Response:
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *_args):
+                return False
+
+            def read(self):
+                return b"tail"
+
+        with patch("ml_service.public_data.urlopen", return_value=Response()) as opener:
+            self.assertEqual(request_bytes("https://example.test/data", (700, None)), b"tail")
+        request = opener.call_args.args[0]
+        self.assertEqual(request.get_header("Range"), "bytes=700-")
 
     def test_index_selection_requires_contiguous_24_hours(self):
         records = parse_index(INDEX)

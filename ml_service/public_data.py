@@ -46,10 +46,11 @@ class IndexRecord:
     end: int | None = None
 
 
-def request_bytes(url: str, byte_range: tuple[int, int] | None = None) -> bytes:
+def request_bytes(url: str, byte_range: tuple[int, int | None] | None = None) -> bytes:
     headers = {"User-Agent": "REYVA-AI-SIH/1.0 (public weather data research)"}
     if byte_range is not None:
-        headers["Range"] = f"bytes={byte_range[0]}-{byte_range[1]}"
+        end = "" if byte_range[1] is None else str(byte_range[1])
+        headers["Range"] = f"bytes={byte_range[0]}-{end}"
     for attempt in range(NETWORK_ATTEMPTS):
         try:
             with urlopen(Request(url, headers=headers), timeout=90) as response:
@@ -132,10 +133,6 @@ def download_records(url: str, records: list[IndexRecord], destination: Path) ->
     destination.parent.mkdir(parents=True, exist_ok=True)
     with destination.open("wb") as output:
         for record in records:
-            if record.end is None:
-                # The final message has no following offset; a suffix request is
-                # unnecessary for the variables used here, but make it explicit.
-                raise ValueError("Cannot range-download the final unbounded GRIB message")
             output.write(request_bytes(url, (record.offset, record.end)))
     return destination
 
