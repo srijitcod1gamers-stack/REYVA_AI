@@ -1,5 +1,7 @@
 import unittest
 from datetime import datetime, timezone
+from http.client import RemoteDisconnected
+from unittest.mock import patch
 
 from ml_service.public_data import (
     chirps_url,
@@ -7,6 +9,7 @@ from ml_service.public_data import (
     parse_index,
     plan,
     reforecast_url,
+    request_bytes,
     select_accumulation,
     select_instant,
 )
@@ -26,6 +29,28 @@ INDEX = """1:0:d=2019050100:APCP:surface:66-72 hour acc fcst:ENS=low-res ctl
 
 
 class PublicDataTests(unittest.TestCase):
+    def test_network_disconnect_is_retried(self):
+        class Response:
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *_args):
+                return False
+
+            def read(self):
+                return b"recovered"
+
+        with (
+            patch(
+                "ml_service.public_data.urlopen",
+                side_effect=[RemoteDisconnected("closed"), Response()],
+            ) as opener,
+            patch("ml_service.public_data.time.sleep") as sleep,
+        ):
+            self.assertEqual(request_bytes("https://example.test/data"), b"recovered")
+        self.assertEqual(opener.call_count, 2)
+        sleep.assert_called_once_with(1)
+
     def test_index_selection_requires_contiguous_24_hours(self):
         records = parse_index(INDEX)
         selected = select_accumulation(records, 72, 96)

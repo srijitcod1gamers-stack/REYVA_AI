@@ -11,10 +11,13 @@ import argparse
 import json
 import re
 import tempfile
+import time
+import warnings
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
+from http.client import RemoteDisconnected
 from pathlib import Path
-from urllib.error import HTTPError
+from urllib.error import HTTPError, URLError
 from urllib.parse import quote
 from urllib.request import Request, urlopen
 
@@ -32,6 +35,8 @@ MEMBERS = ("c00", "p01", "p02", "p03", "p04")
 QUANTILES = np.linspace(0.05, 0.95, 19, dtype=np.float32)
 ACCUMULATION_RE = re.compile(r":(\d+)-(\d+) hour acc fcst:")
 LEAD_RE = re.compile(r":(\d+) hour fcst:")
+RETRYABLE_HTTP_CODES = {408, 425, 429, 500, 502, 503, 504}
+NETWORK_ATTEMPTS = 6
 
 
 @dataclass(frozen=True)
@@ -45,8 +50,23 @@ def request_bytes(url: str, byte_range: tuple[int, int] | None = None) -> bytes:
     headers = {"User-Agent": "REYVA-AI-SIH/1.0 (public weather data research)"}
     if byte_range is not None:
         headers["Range"] = f"bytes={byte_range[0]}-{byte_range[1]}"
-    with urlopen(Request(url, headers=headers), timeout=90) as response:
-        return response.read()
+    for attempt in range(NETWORK_ATTEMPTS):
+        try:
+            with urlopen(Request(url, headers=headers), timeout=90) as response:
+                return response.read()
+        except HTTPError as error:
+            if error.code not in RETRYABLE_HTTP_CODES or attempt + 1 == NETWORK_ATTEMPTS:
+                raise
+        except (URLError, RemoteDisconnected, TimeoutError, ConnectionError, OSError):
+            if attempt + 1 == NETWORK_ATTEMPTS:
+                raise
+        delay = min(30, 2**attempt)
+        print(
+            f"[network] request interrupted; retry {attempt + 2}/{NETWORK_ATTEMPTS} in {delay}s",
+            flush=True,
+        )
+        time.sleep(delay)
+    raise RuntimeError("Network retry loop ended unexpectedly")
 
 
 def request_text(url: str) -> str:
@@ -206,8 +226,17 @@ def _with_valid_time(field: xr.DataArray, valid_time: datetime, name: str) -> xr
 
 def _write_field(field: xr.DataArray, path: Path) -> str:
     path.parent.mkdir(parents=True, exist_ok=True)
-    field.to_dataset().to_netcdf(path)
+    partial = path.with_suffix(path.suffix + ".partial")
+    field.to_dataset().to_netcdf(partial)
+    partial.replace(path)
     return path.as_posix()
+
+
+def _write_dataset(dataset: xr.Dataset, path: Path) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    partial = path.with_suffix(path.suffix + ".partial")
+    dataset.to_netcdf(partial)
+    partial.replace(path)
 
 
 def fetch_reforecast_member(
@@ -262,18 +291,30 @@ def read_chirps(day: datetime, bounds: list[float]) -> xr.DataArray:
     except ImportError as error:
         raise RuntimeError("Install the ml_service dependencies including rasterio") from error
     url = chirps_url(day)
-    with rasterio.Env(GDAL_DISABLE_READDIR_ON_OPEN="EMPTY_DIR"):
-        with rasterio.open(url) as source:
-            window = from_bounds(*bounds, transform=source.transform).round_offsets().round_lengths()
-            values = source.read(1, window=window, masked=True)
-            transform = source.window_transform(window)
-            if values.size == 0:
-                raise ValueError("CHIRPS bounds produced an empty grid")
-            rows, columns = values.shape
-            xs = transform.c + (np.arange(columns) + 0.5) * transform.a
-            ys = transform.f + (np.arange(rows) + 0.5) * transform.e
-            data = np.asarray(values.filled(np.nan), dtype=np.float32)
-            data[~np.isfinite(data) | (data < 0)] = np.nan
+    for attempt in range(NETWORK_ATTEMPTS):
+        try:
+            with rasterio.Env(GDAL_DISABLE_READDIR_ON_OPEN="EMPTY_DIR"):
+                with rasterio.open(url) as source:
+                    window = from_bounds(*bounds, transform=source.transform).round_offsets().round_lengths()
+                    values = source.read(1, window=window, masked=True)
+                    transform = source.window_transform(window)
+                    if values.size == 0:
+                        raise ValueError("CHIRPS bounds produced an empty grid")
+                    rows, columns = values.shape
+                    xs = transform.c + (np.arange(columns) + 0.5) * transform.a
+                    ys = transform.f + (np.arange(rows) + 0.5) * transform.e
+                    data = np.asarray(values.filled(np.nan), dtype=np.float32)
+                    data[~np.isfinite(data) | (data < 0)] = np.nan
+            break
+        except (rasterio.errors.RasterioIOError, RemoteDisconnected, TimeoutError, ConnectionError, OSError):
+            if attempt + 1 == NETWORK_ATTEMPTS:
+                raise
+            delay = min(30, 2**attempt)
+            print(
+                f"[network] CHIRPS read interrupted; retry {attempt + 2}/{NETWORK_ATTEMPTS} in {delay}s",
+                flush=True,
+            )
+            time.sleep(delay)
     field = xr.DataArray(data, dims=("lat", "lon"), coords={"lat": ys, "lon": xs}).sortby("lat")
     finite = np.isfinite(field.values)
     if finite.mean() < 0.1:
@@ -368,7 +409,11 @@ def prepare_climatology(manifest: dict, root: Path, force: bool = False) -> None
         forecasts = xr.concat(forecast_rows, dim="case")
         observations = xr.concat(observed_rows, dim="case")
         model_quantiles = forecasts.stack(sample=("case", "number")).quantile(QUANTILES, dim="sample")
-        observed_quantiles = observations.quantile(QUANTILES, dim="case")
+        # CHIRPS is land-only. Ocean cells are intentionally all-NaN and remain
+        # masked downstream, so NumPy's all-NaN quantile warning is expected.
+        with warnings.catch_warnings():
+            warnings.filterwarnings("ignore", message="All-NaN slice encountered", category=RuntimeWarning)
+            observed_quantiles = observations.quantile(QUANTILES, dim="case")
         dataset = xr.Dataset(
             {
                 "model_precipitation_quantiles": model_quantiles.astype(np.float32),
@@ -381,8 +426,7 @@ def prepare_climatology(manifest: dict, root: Path, force: bool = False) -> None
                 "sampling": "5th, 15th and 25th calendar days; five GEFS members",
             },
         )
-        destination.parent.mkdir(parents=True, exist_ok=True)
-        dataset.to_netcdf(destination)
+        _write_dataset(dataset, destination)
         print(f"[climatology {month:02d}] wrote {destination}", flush=True)
 
 
