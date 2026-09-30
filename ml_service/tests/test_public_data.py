@@ -3,8 +3,12 @@ from datetime import datetime, timezone
 from http.client import RemoteDisconnected
 from unittest.mock import patch
 
+import numpy as np
+import xarray as xr
+
 from ml_service.public_data import (
     chirps_url,
+    _model_quantiles_on,
     operational_url,
     parse_index,
     plan,
@@ -93,6 +97,24 @@ class PublicDataTests(unittest.TestCase):
         }
         with self.assertRaisesRegex(ValueError, "valid-time months"):
             plan(manifest)
+
+    def test_legacy_union_climate_grid_is_restored(self):
+        values = np.full((19, 3, 3), np.nan, dtype=np.float32)
+        values[:, (0, 2), :] = 1
+        values[:, :, 1] = np.nan
+        legacy = xr.DataArray(
+            values,
+            dims=("quantile", "lat", "lon"),
+            coords={"quantile": np.linspace(0.05, 0.95, 19), "lat": [0, 0.5, 1], "lon": [0, 0.5, 1]},
+        )
+        target = xr.DataArray(
+            np.zeros((2, 2), dtype=np.float32),
+            dims=("lat", "lon"),
+            coords={"lat": [0, 1], "lon": [0, 1]},
+        )
+        aligned = _model_quantiles_on(legacy, target)
+        self.assertEqual(aligned.shape, (19, 2, 2))
+        self.assertTrue(np.isfinite(aligned).all())
 
 
 if __name__ == "__main__":

@@ -421,8 +421,12 @@ def prepare_climatology(manifest: dict, root: Path, force: bool = False) -> None
             observed_quantiles = observations.quantile(QUANTILES, dim="case")
         dataset = xr.Dataset(
             {
-                "model_precipitation_quantiles": model_quantiles.astype(np.float32),
-                "observed_precipitation_quantiles": observed_quantiles.astype(np.float32),
+                "model_precipitation_quantiles": model_quantiles.rename(
+                    {"lat": "model_lat", "lon": "model_lon"}
+                ).astype(np.float32),
+                "observed_precipitation_quantiles": observed_quantiles.rename(
+                    {"lat": "observed_lat", "lon": "observed_lon"}
+                ).astype(np.float32),
             },
             attrs={
                 "source": "NOAA GEFSv12 reforecasts and CHIRPS v3 RNL",
@@ -437,6 +441,33 @@ def prepare_climatology(manifest: dict, root: Path, force: bool = False) -> None
 
 def _interpolate_to(field: xr.DataArray, target: xr.DataArray) -> xr.DataArray:
     return field.interp(lat=target.lat, lon=target.lon, method="linear")
+
+
+def _native_climate_grid(field: xr.DataArray, prefix: str) -> xr.DataArray:
+    """Restore a climate variable's native grid, including legacy union-grid files."""
+    rename = {
+        name: canonical
+        for name, canonical in ((f"{prefix}_lat", "lat"), (f"{prefix}_lon", "lon"))
+        if name in field.dims
+    }
+    if rename:
+        field = field.rename(rename)
+    if "lat" not in field.dims or "lon" not in field.dims:
+        raise ValueError(f"Climate variable lacks the {prefix} latitude/longitude grid")
+    # Older generated files stored coarse model and fine observation variables
+    # under shared coordinate names. Xarray correctly formed their coordinate
+    # union and padded each native grid with NaNs. Drop those padded rows and
+    # columns before aligning the field to a forecast grid.
+    return field.dropna("lat", how="all").dropna("lon", how="all")
+
+
+def _model_quantiles_on(field: xr.DataArray, target: xr.DataArray) -> xr.DataArray:
+    aligned = _interpolate_to(_native_climate_grid(field, "model"), target).transpose(
+        "quantile", "lat", "lon"
+    )
+    if aligned.sizes.get("quantile") != len(QUANTILES) or not np.isfinite(aligned.values).all():
+        raise ValueError("Model climatology cannot be aligned to the forecast grid")
+    return aligned
 
 
 def prepare_events(manifest: dict, root: Path, force: bool = False) -> tuple[Path, Path]:
@@ -468,10 +499,15 @@ def prepare_events(manifest: dict, root: Path, force: bool = False) -> tuple[Pat
             if not climate_path.exists():
                 raise RuntimeError(f"Missing {climate_path}; run prepare-climatology first")
             with xr.open_dataset(climate_path) as climate:
-                model_quantiles = climate["model_precipitation_quantiles"].load()
-                observed_p95 = climate["observed_precipitation_quantiles"].sel(
+                model_quantiles = _model_quantiles_on(
+                    climate["model_precipitation_quantiles"].load(), precipitation
+                )
+                observed_p95 = _native_climate_grid(
+                    climate["observed_precipitation_quantiles"].sel(
                     quantile=0.95, method="nearest"
-                ).load()
+                    ).load(),
+                    "observed",
+                )
             forecast_mean = precipitation.mean("number")
             efi = xr.DataArray(
                 extreme_forecast_index(precipitation.values, model_quantiles.values, QUANTILES),
@@ -607,7 +643,9 @@ def prepare_live(manifest: dict, root: Path, leads: list[int], force: bool = Fal
             if not climate_path.exists():
                 raise RuntimeError(f"Missing month {valid.month} climatology for live EFI")
             with xr.open_dataset(climate_path) as climate:
-                quantiles = climate["model_precipitation_quantiles"].load()
+                quantiles = _model_quantiles_on(
+                    climate["model_precipitation_quantiles"].load(), precipitation
+                )
             efi = xr.DataArray(
                 extreme_forecast_index(precipitation.values, quantiles.values, QUANTILES),
                 dims=("lat", "lon"), coords={"lat": precipitation.lat, "lon": precipitation.lon},
