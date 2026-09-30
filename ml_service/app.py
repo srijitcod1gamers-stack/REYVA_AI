@@ -155,7 +155,9 @@ def track(event_id: str, hour: int = Query(ge=72, le=240)):
     values = torch.from_numpy(((features - means) / scales).reshape(-1, len(means)))
     with torch.no_grad():
         scores = torch.sigmoid(load_tracker(str(directory.resolve()), len(means))(graph, values))
-    mask = scores.numpy().reshape(features.shape[:2]) >= 0.5
+    mask = scores.numpy().reshape(features.shape[:2]) >= float(
+        report.get("decision_threshold", 0.5)
+    )
     if not mask.any():
         return {
             "event_id": event_id,
@@ -217,6 +219,7 @@ def downscaled(
             scheduler,
             torch.from_numpy(array)[None, None].to(device),
             max_mm=float(report["output_cap_mm"]),
+            residual_weight=float(report.get("residual_weight", 1.0)),
         )[0, 0].cpu()
         if not torch.isfinite(field).all() or (field < 0).any():
             raise ValueError("Model output contains invalid rainfall values")

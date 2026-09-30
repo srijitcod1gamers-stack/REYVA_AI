@@ -560,6 +560,39 @@ def prepare_events(manifest: dict, root: Path, force: bool = False) -> tuple[Pat
                 "valid_mask": {"path": validity_path.as_posix(), "variable": "valid_mask"},
             }
         )
+    # Add a balanced training-only sample from the already downloaded
+    # climatology pairs. Historical named events remain the only validation and
+    # test cases; these auxiliary dates improve spatial diversity without
+    # leaking either held-out event into optimization or model selection.
+    climate_training_dir = root / "climatology" / "training"
+    start_year = int(manifest.get("climatology_start_year", 2000))
+    for month in plan(manifest)["climatology_months"]:
+        for year in range(start_year, 2020, 2):
+            case_id = f"{year}{month:02d}15"
+            cache_dir = root / "climatology" / "cache" / f"month-{month:02d}"
+            forecast_cache = cache_dir / f"{case_id}-gefs.nc"
+            observed_cache = cache_dir / f"{case_id}-chirps.nc"
+            if not forecast_cache.exists() or not observed_cache.exists():
+                raise RuntimeError(f"Missing cached climatology pair for {case_id}")
+            forecast_mean_path = climate_training_dir / f"{case_id}-gefs-mean.nc"
+            if force or not forecast_mean_path.exists():
+                with xr.open_dataset(forecast_cache) as dataset:
+                    forecast_mean = dataset["precipitation"].mean("number").load()
+                _write_field(forecast_mean, forecast_mean_path)
+            training.append(
+                {
+                    "event_id": f"climatology-{case_id}",
+                    "split": "train",
+                    "forecast": forecast_mean_path.as_posix(),
+                    "observation": observed_cache.as_posix(),
+                    "forecast_variable": "precipitation",
+                    "observation_variable": "precipitation",
+                    "lead_hours": 96,
+                    "accumulation_hours": 24,
+                    "valid_time": f"{year}-{month:02d}-15T00:00:00Z",
+                    "bounds": bounds,
+                }
+            )
     training_path = root / "training-catalog.json"
     tracking_path = root / "tracking-catalog.json"
     training_path.write_text(json.dumps({"samples": training}, indent=2), encoding="utf-8")

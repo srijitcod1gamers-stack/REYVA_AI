@@ -4,6 +4,10 @@ import torch
 from diffusers import DDPMScheduler, UNet2DModel
 
 
+LOG_SCALE = 5.0
+RESIDUAL_LIMIT = 2.0
+
+
 def create_model():
     return UNet2DModel(
         sample_size=64,
@@ -17,7 +21,12 @@ def create_model():
 
 
 def create_scheduler():
-    return DDPMScheduler(num_train_timesteps=100, beta_schedule="squaredcos_cap_v2", clip_sample=False)
+    return DDPMScheduler(
+        num_train_timesteps=100,
+        beta_schedule="squaredcos_cap_v2",
+        clip_sample=True,
+        clip_sample_range=1.0,
+    )
 
 
 @torch.no_grad()
@@ -27,12 +36,16 @@ def generate(
     coarse_mm: torch.Tensor,
     seed: int = 0,
     max_mm: float = 1000,
+    residual_weight: float = 1.0,
 ) -> torch.Tensor:
     if coarse_mm.ndim != 4 or coarse_mm.shape[1] != 1:
         raise ValueError("Expected [batch, 1, height, width] rainfall tensor")
     if coarse_mm.shape[-2] % 8 or coarse_mm.shape[-1] % 8:
         raise ValueError("Grid dimensions must be divisible by eight")
-    condition = torch.log1p(coarse_mm.clamp_min(0)) / 5
+    if not 0 <= residual_weight <= 1:
+        raise ValueError("Residual weight must be between zero and one")
+    coarse_log = torch.log1p(coarse_mm.clamp_min(0))
+    condition = coarse_log / LOG_SCALE
     generator = torch.Generator(device=coarse_mm.device).manual_seed(seed)
     sample = torch.randn(condition.shape, generator=generator, device=coarse_mm.device)
     scheduler.set_timesteps(50, device=coarse_mm.device)
@@ -41,4 +54,5 @@ def generate(
         residual = model(torch.cat((sample, condition), dim=1), step).sample
         sample = scheduler.step(residual, step, sample).prev_sample
     maximum = torch.log1p(torch.tensor(max_mm, device=sample.device, dtype=sample.dtype))
-    return torch.expm1((sample * 5).clamp(0, maximum)).clamp(0, max_mm)
+    corrected_log = coarse_log + residual_weight * sample.clamp(-1, 1) * RESIDUAL_LIMIT
+    return torch.expm1(corrected_log.clamp(0, maximum)).clamp(0, max_mm)

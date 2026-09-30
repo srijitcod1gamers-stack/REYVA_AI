@@ -18,6 +18,8 @@ NOAA GEFSv12 reforecasts + CHIRPS v3 observations
 
 The default [public manifest](public-manifest.json) contains twelve named Indian Ocean severe-weather evaluation windows. They are 24-hour rainfall verification windows, not asserted landfall timestamps. The pipeline uses the same five members (`c00`, `p01`-`p04`) in the retrospective and live archives. It sums all NOAA interval messages in each 24-hour window instead of treating a six-hour `90-96 hour acc` message as a daily total.
 
+The downscaler catalog also includes forty evenly sampled climatology pairs marked `split: train`. They increase training diversity but can never enter validation or test splits; the named historical events remain the held-out release evidence.
+
 CHIRPS is a land precipitation product. Its ocean NoData cells are carried as an explicit validity mask; downscaler loss, downscaler metrics and tracker metrics use only CHIRPS-covered land cells. The pipeline does not convert ocean NoData to zero rainfall, and approved reports state this validation scope.
 
 Install Python 3.12 dependencies and inspect the exact workload before downloading:
@@ -42,6 +44,12 @@ Train only after both catalogs exist:
 ```powershell
 ml_service/.venv/Scripts/python.exe -m ml_service.train --catalog ml_service/data/public/training-catalog.json --output ml_service/artifacts --epochs 20
 ml_service/.venv/Scripts/python.exe -m ml_service.train_tracker --catalog ml_service/data/public/tracking-catalog.json --output ml_service/artifacts --epochs 20
+```
+
+If training finishes but the final evaluation is interrupted, resume the saved downscaler checkpoint without repeating optimization:
+
+```powershell
+ml_service/.venv/Scripts/python.exe -m ml_service.train --catalog ml_service/data/public/training-catalog.json --output ml_service/artifacts --evaluate-only
 ```
 
 An artifact remains unusable if it fails either held-out gate. A GPU is strongly recommended for the diffusion training. The selected public sources are [NOAA GEFS reforecasts](https://registry.opendata.aws/noaa-gefs-reforecast/) and [CHIRPS v3](https://chc.ucsb.edu/data/chirps3). CHIRPS-GEFS may be displayed later as an external comparison product, but it is not used or labelled as REYVA's trained output.

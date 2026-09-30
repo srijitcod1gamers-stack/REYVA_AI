@@ -17,9 +17,10 @@ from pathlib import Path
 import numpy as np
 import torch
 import torch.nn.functional as F
+from diffusers import UNet2DModel
 
 from .data import paired_grids
-from .model import create_model, create_scheduler, generate
+from .model import LOG_SCALE, RESIDUAL_LIMIT, create_model, create_scheduler, generate
 from .validation import approve_downscaler, split_events
 
 
@@ -59,7 +60,16 @@ def best_patch(mask: np.ndarray):
     return tuple(int(value) for value in np.unravel_index(np.argmax(counts), counts.shape))
 
 
-def score(model, scheduler, rows, device, output_cap_mm):
+def partition_events(records: list[dict]):
+    evaluation = [record for record in records if record.get("split") != "train"]
+    train_ids, validation_ids, test_ids = split_events(evaluation)
+    forced_train = {record["event_id"] for record in records if record.get("split") == "train"}
+    if forced_train & (validation_ids | test_ids):
+        raise ValueError("Training-only events overlap held-out events")
+    return train_ids | forced_train, validation_ids, test_ids
+
+
+def score(model, scheduler, rows, device, output_cap_mm, residual_weight=1.0):
     baseline_errors = []
     model_errors = []
     baseline_peaks = []
@@ -72,6 +82,7 @@ def score(model, scheduler, rows, device, output_cap_mm):
         prediction = generate(
             model, scheduler,
             torch.from_numpy(coarse)[None, None].to(device), seed=index, max_mm=output_cap_mm,
+            residual_weight=residual_weight,
         )[0, 0].cpu().numpy()
         if observed.sum() < 512:
             raise ValueError("Held-out patch has too few CHIRPS-covered land cells")
@@ -91,6 +102,58 @@ def score(model, scheduler, rows, device, output_cap_mm):
     }
 
 
+def evaluate_checkpoint(catalog: Path, output: Path):
+    rows, records = load_samples(catalog)
+    windows = {int(sample["accumulation_hours"]) for sample in records}
+    if len(windows) != 1:
+        raise ValueError("All evaluation examples must use one accumulation window")
+    train_ids, val_ids, test_ids = partition_events(records)
+    train_rows = [row for row in rows if row[0] in train_ids]
+    val_rows = [row for row in rows if row[0] in val_ids]
+    test_rows = [row for row in rows if row[0] in test_ids]
+    if min(len(train_rows), len(val_rows), len(test_rows)) < 2:
+        raise ValueError("Insufficient paired grids per split")
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    output_cap_mm = max(
+        1.0,
+        float(np.percentile(np.concatenate([row[2][row[3]] for row in train_rows]), 99.9) * 1.25),
+    )
+    model = UNet2DModel.from_pretrained(output / "model").to(device)
+    scheduler = create_scheduler()
+    validation_candidates = [
+        (weight, score(model, scheduler, val_rows, device, output_cap_mm, weight))
+        for weight in (value / 10 for value in range(1, 11))
+    ]
+    residual_weight, validation = min(
+        validation_candidates, key=lambda item: item[1]["model_mae_mm"]
+    )
+    test = score(model, scheduler, test_rows, device, output_cap_mm, residual_weight)
+    approved = approve_downscaler(validation, test)
+    checkpoint = output / "model" / "diffusion_pytorch_model.safetensors"
+    if not checkpoint.exists():
+        checkpoint = output / "model" / "diffusion_pytorch_model.bin"
+    report = {
+        "trained_at": datetime.now(timezone.utc).isoformat(),
+        "approved": approved,
+        "variable": "accumulated_precipitation_mm",
+        "accumulation_hours": windows.pop(),
+        "resolution_degrees": 0.05,
+        "output_cap_mm": output_cap_mm,
+        "residual_weight": residual_weight,
+        "method": "coarse-anchored conditional residual DDPM; event-held-out validation",
+        "validation_scope": "CHIRPS-covered land cells",
+        "train_events": sorted(train_ids),
+        "validation_events": sorted(val_ids),
+        "test_events": sorted(test_ids),
+        "validation": validation,
+        "test": test,
+        "checkpoint_sha256": hashlib.sha256(checkpoint.read_bytes()).hexdigest(),
+        "catalog_sha256": hashlib.sha256(catalog.read_bytes()).hexdigest(),
+    }
+    (output / "validation.json").write_text(json.dumps(report, indent=2), encoding="utf-8")
+    return report
+
+
 def train(catalog: Path, output: Path, epochs: int):
     torch.manual_seed(42)
     np.random.seed(42)
@@ -98,7 +161,7 @@ def train(catalog: Path, output: Path, epochs: int):
     windows = {int(sample["accumulation_hours"]) for sample in records}
     if len(windows) != 1:
         raise ValueError("All training examples must use the same precipitation accumulation window")
-    train_ids, val_ids, test_ids = split_events(records)
+    train_ids, val_ids, test_ids = partition_events(records)
     train_rows = [row for row in rows if row[0] in train_ids]
     val_rows = [row for row in rows if row[0] in val_ids]
     test_rows = [row for row in rows if row[0] in test_ids]
@@ -119,64 +182,43 @@ def train(catalog: Path, output: Path, epochs: int):
         rng.shuffle(train_rows)
         model.train()
         for _, baseline, truth, valid in train_rows:
-            for _ in range(100):
-                y = rng.randrange(0, baseline.shape[0] - 63)
-                x = rng.randrange(0, baseline.shape[1] - 63)
-                if patch(valid, y, x).mean() >= 0.5:
-                    break
-            else:
-                y, x = best_patch(valid)
-            coarse = torch.from_numpy(patch(baseline, y, x))[None, None].to(device)
-            target = torch.from_numpy(patch(truth, y, x))[None, None].to(device)
-            observed = torch.from_numpy(patch(valid, y, x).astype(np.float32))[None, None].to(device)
-            normalized = torch.log1p(target) / 5
-            condition = torch.log1p(coarse) / 5
-            noise = torch.randn_like(normalized)
-            timestep = torch.randint(0, scheduler.config.num_train_timesteps, (1,), device=device)
-            noisy = scheduler.add_noise(normalized, noise, timestep)
-            predicted_noise = model(torch.cat((noisy, condition), dim=1), timestep).sample
-            high = (target >= torch.quantile(target[observed.bool()], 0.95)).float()
-            weights = observed * (1 + high * 2)
-            denoising = ((predicted_noise - noise).square() * weights).sum() / weights.sum().clamp_min(1)
-            alpha = scheduler.alphas_cumprod[timestep].reshape(1, 1, 1, 1)
-            estimated = (noisy - (1 - alpha).sqrt() * predicted_noise) / alpha.sqrt()
-            mass = ((estimated - normalized) * observed).sum().abs() / observed.sum().clamp_min(1)
-            loss = denoising + 0.05 * mass
-            optimizer.zero_grad()
-            loss.backward()
-            optimizer.step()
-        validation = score(model, scheduler, val_rows, device, output_cap_mm)
+            for _patch_index in range(8):
+                for _ in range(100):
+                    y = rng.randrange(0, baseline.shape[0] - 63)
+                    x = rng.randrange(0, baseline.shape[1] - 63)
+                    if patch(valid, y, x).mean() >= 0.5:
+                        break
+                else:
+                    y, x = best_patch(valid)
+                coarse = torch.from_numpy(patch(baseline, y, x))[None, None].to(device)
+                target = torch.from_numpy(patch(truth, y, x))[None, None].to(device)
+                observed = torch.from_numpy(patch(valid, y, x).astype(np.float32))[None, None].to(device)
+                condition = torch.log1p(coarse) / LOG_SCALE
+                normalized = (
+                    (torch.log1p(target) - torch.log1p(coarse)) / RESIDUAL_LIMIT
+                ).clamp(-1, 1)
+                noise = torch.randn_like(normalized)
+                timestep = torch.randint(0, scheduler.config.num_train_timesteps, (1,), device=device)
+                noisy = scheduler.add_noise(normalized, noise, timestep)
+                predicted_noise = model(torch.cat((noisy, condition), dim=1), timestep).sample
+                high = (target >= torch.quantile(target[observed.bool()], 0.95)).float()
+                weights = observed * (1 + high * 2)
+                denoising = ((predicted_noise - noise).square() * weights).sum() / weights.sum().clamp_min(1)
+                alpha = scheduler.alphas_cumprod[timestep].reshape(1, 1, 1, 1)
+                estimated = (noisy - (1 - alpha).sqrt() * predicted_noise) / alpha.sqrt()
+                mass = ((estimated - normalized) * observed).sum().abs() / observed.sum().clamp_min(1)
+                loss = denoising + 0.05 * mass
+                optimizer.zero_grad()
+                loss.backward()
+                optimizer.step()
+        validation = score(model, scheduler, val_rows, device, output_cap_mm, residual_weight=0.4)
         print(f"epoch {epoch + 1}: validation MAE {validation['model_mae_mm']:.3f} mm")
         if validation["model_mae_mm"] < best_mae:
             best_mae = validation["model_mae_mm"]
             model.save_pretrained(output / "model")
-    best = type(model).from_pretrained(output / "model").to(device)
     scheduler.save_pretrained(output / "scheduler")
-    validation = score(best, scheduler, val_rows, device, output_cap_mm)
-    test = score(best, scheduler, test_rows, device, output_cap_mm)
-    approved = approve_downscaler(validation, test)
-    checkpoint = output / "model" / "diffusion_pytorch_model.safetensors"
-    if not checkpoint.exists():
-        checkpoint = output / "model" / "diffusion_pytorch_model.bin"
-    report = {
-        "trained_at": datetime.now(timezone.utc).isoformat(),
-        "approved": approved,
-        "variable": "accumulated_precipitation_mm",
-        "accumulation_hours": windows.pop(),
-        "resolution_degrees": 0.05,
-        "output_cap_mm": output_cap_mm,
-        "method": "conditional DDPM; event-held-out validation",
-        "validation_scope": "CHIRPS-covered land cells",
-        "train_events": sorted(train_ids),
-        "validation_events": sorted(val_ids),
-        "test_events": sorted(test_ids),
-        "validation": validation,
-        "test": test,
-        "checkpoint_sha256": hashlib.sha256(checkpoint.read_bytes()).hexdigest(),
-        "catalog_sha256": hashlib.sha256(catalog.read_bytes()).hexdigest(),
-    }
-    (output / "validation.json").write_text(json.dumps(report, indent=2), encoding="utf-8")
-    if not approved:
+    report = evaluate_checkpoint(catalog, output)
+    if not report["approved"]:
         raise RuntimeError("Held-out model skill did not beat bilinear interpolation; checkpoint is withheld")
 
 
@@ -185,5 +227,12 @@ if __name__ == "__main__":
     parser.add_argument("--catalog", type=Path, required=True)
     parser.add_argument("--output", type=Path, default=Path("ml_service/artifacts"))
     parser.add_argument("--epochs", type=int, default=20)
+    parser.add_argument("--evaluate-only", action="store_true")
     args = parser.parse_args()
-    train(args.catalog, args.output, args.epochs)
+    if args.evaluate_only:
+        report = evaluate_checkpoint(args.catalog, args.output)
+        print(json.dumps(report, indent=2))
+        if not report["approved"]:
+            raise RuntimeError("Held-out model skill did not beat bilinear interpolation; checkpoint is withheld")
+    else:
+        train(args.catalog, args.output, args.epochs)

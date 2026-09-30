@@ -59,7 +59,7 @@ def f1(predicted, truth):
     return float(2 * tp / max(1, 2 * tp + fp + fn))
 
 
-def evaluate(model, rows, means, scales, threshold):
+def evaluate(model, rows, means, scales, threshold, decision_threshold=0.5):
     model.eval()
     scores, baselines = [], []
     with torch.no_grad():
@@ -67,7 +67,7 @@ def evaluate(model, rows, means, scales, threshold):
             graph = spherical_grid_graph(lat, lon)
             normalized = torch.from_numpy(((features - means) / scales).reshape(-1, features.shape[-1]))
             probabilities = torch.sigmoid(model(graph, normalized)).numpy().reshape(labels.shape)
-            scores.append(f1(probabilities[valid] >= 0.5, labels[valid] == 1))
+            scores.append(f1(probabilities[valid] >= decision_threshold, labels[valid] == 1))
             baselines.append(f1(features[..., 0][valid] >= threshold, labels[valid] == 1))
     return {"f1": float(np.mean(scores)), "threshold_baseline_f1": float(np.mean(baselines)), "cases": len(rows)}
 
@@ -89,6 +89,12 @@ def train(catalog: Path, output: Path, epochs: int):
     if min(len(group) for group in groups) < 2:
         raise ValueError("At least two samples are required in each event-held-out split")
     training_values = np.concatenate([row[1][row[3]] for row in groups[0]])
+    training_labels = np.concatenate([row[2][row[3]] for row in groups[0]])
+    positives = float(training_labels.sum())
+    negatives = float(len(training_labels) - positives)
+    if positives == 0 or negatives == 0:
+        raise ValueError("Tracker training split needs both extreme and non-extreme cells")
+    positive_weight = negatives / positives
     means = training_values.mean(axis=0)
     scales = np.maximum(training_values.std(axis=0), 1e-6)
     baseline_threshold = float(records[0]["baseline_threshold"])
@@ -108,7 +114,11 @@ def train(catalog: Path, output: Path, epochs: int):
             truth = torch.from_numpy(labels.reshape(-1))
             observed = torch.from_numpy(valid.reshape(-1))
             prediction = model(graph, values)
-            loss = F.binary_cross_entropy_with_logits(prediction[observed], truth[observed])
+            loss = F.binary_cross_entropy_with_logits(
+                prediction[observed],
+                truth[observed],
+                pos_weight=torch.tensor(positive_weight, dtype=prediction.dtype),
+            )
             optimizer.zero_grad()
             loss.backward()
             optimizer.step()
@@ -118,8 +128,17 @@ def train(catalog: Path, output: Path, epochs: int):
             best = validation["f1"]
             torch.save(model.state_dict(), output / "tracker.pt")
     model.load_state_dict(torch.load(output / "tracker.pt", weights_only=True))
-    validation = evaluate(model, groups[1], means, scales, baseline_threshold)
-    test = evaluate(model, groups[2], means, scales, baseline_threshold)
+    threshold_candidates = [value / 20 for value in range(1, 20)]
+    decision_threshold, validation = max(
+        (
+            (candidate, evaluate(model, groups[1], means, scales, baseline_threshold, candidate))
+            for candidate in threshold_candidates
+        ),
+        key=lambda item: item[1]["f1"],
+    )
+    test = evaluate(
+        model, groups[2], means, scales, baseline_threshold, decision_threshold
+    )
     approved = approve_tracker(validation, test)
     report = {
         "approved": approved,
@@ -128,6 +147,8 @@ def train(catalog: Path, output: Path, epochs: int):
         "means": means.tolist(),
         "scales": scales.tolist(),
         "baseline_threshold": baseline_threshold,
+        "decision_threshold": decision_threshold,
+        "positive_weight": positive_weight,
         "validation_scope": "CHIRPS-covered land cells",
         "train_events": sorted(train_ids),
         "validation_events": sorted(validation_ids),

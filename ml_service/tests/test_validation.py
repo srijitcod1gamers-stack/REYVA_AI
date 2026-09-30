@@ -1,6 +1,7 @@
 import unittest
 
 from ml_service.validation import approve_downscaler, approve_tracker, split_events
+from ml_service.train import partition_events
 
 try:
     import numpy as np
@@ -11,6 +12,14 @@ except ImportError:
 
 
 class ValidationTests(unittest.TestCase):
+    def test_training_only_events_do_not_enter_held_out_splits(self):
+        records = [{"event_id": f"event-{index}"} for index in range(12)] + [
+            {"event_id": f"climate-{index}", "split": "train"} for index in range(4)
+        ]
+        training, validation, test = partition_events(records)
+        self.assertTrue({f"climate-{index}" for index in range(4)} <= training)
+        self.assertFalse(any(event.startswith("climate-") for event in validation | test))
+
     def test_event_groups_do_not_overlap(self):
         training, validation, test = split_events(
             [{"event_id": f"event-{index}"} for index in range(12)]
