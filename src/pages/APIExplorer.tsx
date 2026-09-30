@@ -43,7 +43,7 @@ export default function APIExplorer() {
       if (providerMode === 'demo') setResult(demoApi(new URL(`/api${path}`, location.origin)));
       else {
         const r = await fetch(
-          `${import.meta.env.VITE_API_BASE_URL || 'http://127.0.0.1:8787/api'}${path}`,
+          `${import.meta.env.VITE_API_BASE_URL || '/api'}${path}`,
           {
             signal: AbortSignal.timeout(12000),
           },
@@ -70,7 +70,7 @@ export default function APIExplorer() {
         actions={
           <DemoTag>
             {providerMode === 'live'
-              ? 'START TYPESCRIPT API TO TRY'
+              ? 'LIVE API CONNECTED'
               : providerMode === 'demo'
                 ? 'LOCAL DEMO EXECUTION'
                 : 'CONNECTED API'}
@@ -149,7 +149,7 @@ export default function APIExplorer() {
             {result
               ? JSON.stringify(result.body, null, 2)
               : providerMode === 'live'
-                ? '// Run npm run worker:dev in a second terminal.\n// GET /api/live/risk returns a live GEFS coordinate screening assessment.\n// Probability and 5 km risk are not yet validated.'
+                ? '// Choose an endpoint and send a request.\n// Responses come from the live GEFS screening API.\n// Probability and 5 km risk appear only after their models pass validation.'
                 : '// Choose an endpoint and send a request.\n// Demo mode executes locally against the shared API contract.\n// All generated data carries explicit simulated provenance.'}
           </pre>
           <SectionLabel>Example request</SectionLabel>
@@ -157,12 +157,11 @@ export default function APIExplorer() {
             curl '
             {providerMode === 'demo'
               ? 'http://127.0.0.1:8787/api'
-              : import.meta.env.VITE_API_BASE_URL || 'http://127.0.0.1:8787/api'}
+              : import.meta.env.VITE_API_BASE_URL || '/api'}
             {path}'
           </pre>
           <p className="fine-print">
-            Start the TypeScript Worker with npm run worker:dev. Live requests do not silently fall back
-            to mock data.
+            Live requests use the connected TypeScript API and do not silently fall back to mock data.
           </p>
         </section>
       </div>

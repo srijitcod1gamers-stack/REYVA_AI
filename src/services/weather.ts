@@ -80,9 +80,7 @@ export const provider =
     : import.meta.env.VITE_DATA_PROVIDER === 'demo'
       ? new MockWeatherProvider()
       : new LiveWeatherProvider();
-export const providerMode =
-  import.meta.env.VITE_DATA_PROVIDER === 'api'
-    ? 'api'
-    : import.meta.env.VITE_DATA_PROVIDER === 'demo'
-      ? 'demo'
-      : 'live';
+// Both the direct browser provider and the deployed Worker-backed provider
+// serve live forecast data. Keep transport details out of the product mode so
+// the production UI does not accidentally label an API deployment as a demo.
+export const providerMode = import.meta.env.VITE_DATA_PROVIDER === 'demo' ? 'demo' : 'live';

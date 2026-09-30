@@ -205,7 +205,7 @@ function LiveDownscaling() {
       );
       return () => controller.abort();
     }
-    const base = import.meta.env.VITE_API_BASE_URL || 'http://127.0.0.1:8787/api';
+    const base = import.meta.env.VITE_API_BASE_URL || '/api';
     fetch(`${base}/downscaled/${encodeURIComponent(w.selected.id)}?hour=${w.hour}`, {
       signal: controller.signal,
     })
