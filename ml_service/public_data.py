@@ -567,7 +567,7 @@ def prepare_events(manifest: dict, root: Path, force: bool = False) -> tuple[Pat
     return training_path, tracking_path
 
 
-def latest_operational_run(now: datetime | None = None) -> datetime:
+def latest_operational_run(max_lead: int = 240, now: datetime | None = None) -> datetime:
     now = (now or datetime.now(timezone.utc)).astimezone(timezone.utc)
     for day_offset in range(3):
         day = now.date() - timedelta(days=day_offset)
@@ -576,7 +576,11 @@ def latest_operational_run(now: datetime | None = None) -> datetime:
             if candidate > now - timedelta(hours=5):
                 continue
             try:
-                request_bytes(operational_url(candidate, "c00", 96) + ".idx")
+                # NOAA publishes a cycle progressively. Confirm the farthest
+                # requested file for every selected member before committing to
+                # the cycle, otherwise a fresh run can disappear at f216/f240.
+                for member in MEMBERS:
+                    request_bytes(operational_url(candidate, member, max_lead) + ".idx")
                 return candidate
             except HTTPError as error:
                 if error.code != 404:
@@ -616,12 +620,12 @@ def _operational_member_field(
 
 
 def prepare_live(manifest: dict, root: Path, leads: list[int], force: bool = False) -> Path:
-    initialization = latest_operational_run()
+    if not leads or any(lead < 72 or lead > 240 or lead % 6 for lead in leads):
+        raise ValueError("Live leads must be six-hour increments from 72 to 240")
+    initialization = latest_operational_run(max(leads))
     bounds = manifest["bounds"]
     runs, tracking_runs = [], []
     for lead in leads:
-        if lead < 72 or lead > 240 or lead % 6:
-            raise ValueError("Live leads must be six-hour increments from 72 to 240")
         valid = initialization + timedelta(hours=lead)
         print(f"[live {initialization:%Y%m%d%H}] f{lead:03d}", flush=True)
         run_dir = root / "live" / initialization.strftime("%Y%m%d%H") / f"f{lead:03d}"

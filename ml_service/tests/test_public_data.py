@@ -4,6 +4,7 @@ from http.client import RemoteDisconnected
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from unittest.mock import patch
+from urllib.error import HTTPError
 
 import numpy as np
 import xarray as xr
@@ -12,6 +13,7 @@ from ml_service.public_data import (
     chirps_url,
     download_records,
     IndexRecord,
+    latest_operational_run,
     _model_quantiles_on,
     operational_url,
     parse_index,
@@ -102,6 +104,23 @@ class PublicDataTests(unittest.TestCase):
         self.assertIn("2019/2019050100/c00/Days%3A1-10/apcp_sfc_2019050100_c00.grib2", reforecast_url(initialization, "c00", "apcp_sfc"))
         self.assertTrue(operational_url(initialization, "p04", 96).endswith("gep04.t00z.pgrb2s.0p25.f096"))
         self.assertTrue(chirps_url(initialization).endswith("2019/chirps-v3.0.rnl.2019.05.01.cog"))
+
+    def test_latest_run_requires_maximum_lead_for_every_member(self):
+        checked = []
+
+        def availability(url, _byte_range=None):
+            checked.append(url)
+            if "/12/atmos/" in url and "gep01" in url:
+                raise HTTPError(url, 404, "not published", None, None)
+            return b"index"
+
+        with patch("ml_service.public_data.request_bytes", side_effect=availability):
+            selected = latest_operational_run(
+                240, datetime(2026, 9, 30, 17, tzinfo=timezone.utc)
+            )
+        self.assertEqual(selected, datetime(2026, 9, 30, 6, tzinfo=timezone.utc))
+        self.assertTrue(all("f240.idx" in url for url in checked))
+        self.assertTrue(any("gep04" in url for url in checked))
 
     def test_plan_reports_event_and_climatology_counts(self):
         manifest = {
