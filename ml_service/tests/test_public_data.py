@@ -116,6 +116,21 @@ class PublicDataTests(unittest.TestCase):
         self.assertEqual(aligned.shape, (19, 2, 2))
         self.assertTrue(np.isfinite(aligned).all())
 
+    def test_climate_alignment_removes_roundoff_without_hiding_bad_quantiles(self):
+        coordinates = {"quantile": np.linspace(0.05, 0.95, 19), "lat": [0, 1], "lon": [0, 1]}
+        values = np.broadcast_to(np.arange(19, dtype=np.float32)[:, None, None], (19, 2, 2)).copy()
+        values[5, 0, 0] = values[4, 0, 0] - 1e-7
+        target = xr.DataArray(np.zeros((2, 2)), dims=("lat", "lon"), coords={"lat": [0, 1], "lon": [0, 1]})
+        aligned = _model_quantiles_on(
+            xr.DataArray(values, dims=("quantile", "lat", "lon"), coords=coordinates), target
+        )
+        self.assertTrue((np.diff(aligned.values, axis=0) >= 0).all())
+        values[5, 0, 0] = values[4, 0, 0] - 0.1
+        with self.assertRaisesRegex(ValueError, "materially decreasing"):
+            _model_quantiles_on(
+                xr.DataArray(values, dims=("quantile", "lat", "lon"), coords=coordinates), target
+            )
+
 
 if __name__ == "__main__":
     unittest.main()

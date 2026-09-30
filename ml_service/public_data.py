@@ -467,7 +467,13 @@ def _model_quantiles_on(field: xr.DataArray, target: xr.DataArray) -> xr.DataArr
     )
     if aligned.sizes.get("quantile") != len(QUANTILES) or not np.isfinite(aligned.values).all():
         raise ValueError("Model climatology cannot be aligned to the forecast grid")
-    return aligned
+    differences = np.diff(aligned.values, axis=0)
+    if differences.min(initial=0) < -1e-5:
+        raise ValueError("Model climatology contains materially decreasing quantiles")
+    # Linear interpolation in float32 can make equal adjacent quantiles differ
+    # by a few ULPs (observed worst case: -5.96e-8 mm). Quantiles are ordered by
+    # definition, so remove only this numerical noise before EFI validation.
+    return aligned.copy(data=np.maximum.accumulate(aligned.values, axis=0))
 
 
 def prepare_events(manifest: dict, root: Path, force: bool = False) -> tuple[Path, Path]:
