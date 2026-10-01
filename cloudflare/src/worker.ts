@@ -161,6 +161,27 @@ async function mlRequest(request: Request, env: Env, path: string): Promise<Resp
 
 async function liveApi(request: Request, env: Env, url: URL, ctx: ExecutionContext): Promise<Response> {
   const path = url.pathname;
+  if (path === '/api/facilities') {
+    const catalog = await readPublished<{ published_at: string } & Record<string, unknown>>(
+      env,
+      'geojson/facilities/latest.json',
+    );
+    if (env.WEATHER_DB)
+      ctx.waitUntil(
+        env.WEATHER_DB.prepare(
+          'INSERT INTO datasets(id,kind,storage_key,published_at,metadata_json) VALUES(?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET published_at=excluded.published_at,metadata_json=excluded.metadata_json',
+        )
+          .bind(
+            'geojson/facilities/latest.json',
+            'facility_catalog',
+            'geojson/facilities/latest.json',
+            catalog.published_at,
+            JSON.stringify(catalog),
+          )
+          .run(),
+      );
+    return json(request, env, catalog);
+  }
   if (path === '/api/replay') return json(request, env, await readPublished(env, 'replay/catalog.json'));
   if (/^\/api\/(replay|verification)\/[a-z0-9-]+$/.test(path)) {
     const id = path.split('/').at(-1)!;

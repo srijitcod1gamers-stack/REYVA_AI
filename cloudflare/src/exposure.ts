@@ -48,7 +48,11 @@ export async function assessExposure(frame: ForecastFrame, env: B2Env): Promise<
         complete_query: boolean;
         tiles: Record<string, { key: string }>;
       }>(env, 'geojson/facilities/latest.json');
-      if (!catalog.complete_query || Date.now() - Date.parse(catalog.retrieved_at) > 14 * 86400_000)
+      if (
+        !catalog.complete_query ||
+        !Number.isFinite(Date.parse(catalog.retrieved_at)) ||
+        Date.now() - Date.parse(catalog.retrieved_at) > 14 * 86400_000
+      )
         throw new Error(
           'The facility snapshot is incomplete or overdue for refresh. No count has been published.',
         );

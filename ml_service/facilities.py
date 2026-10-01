@@ -10,9 +10,48 @@ import time
 from datetime import datetime, timezone
 from concurrent.futures import ThreadPoolExecutor
 from urllib.parse import quote
+from urllib.request import Request, urlopen
+from urllib.error import HTTPError, URLError
 
-from .public_data import request_bytes
 from .publish import ROOT, request, secrets, write
+
+
+def fetch_bbox(south, west, north, east):
+    bbox = f'({south},{west},{north},{east})'
+    # Exact tag queries use the provider's index and avoid expensive global regex scans.
+    query = '[out:json][timeout:25];(' + ''.join(
+        f'nwr[amenity={kind}]{bbox};' for kind in ('hospital', 'clinic', 'school', 'fire_station')
+    ) + ');out center qt 100001;'
+    url = 'https://overpass-api.de/api/interpreter?data=' + quote(query)
+    last_error = None
+    for attempt in range(4):
+        try:
+            req = Request(url, headers={'User-Agent': 'REYVA-AI-SIH/1.0 (regional facility snapshot)'})
+            with urlopen(req, timeout=40) as response:
+                body = json.load(response)
+            if 'elements' not in body or body.get('remark') or len(body['elements']) > 100000:
+                raise ValueError('Incomplete OSM query response')
+            return body
+        except HTTPError as error:
+            if error.code not in (408, 429, 500, 502, 503, 504):
+                raise
+            if error.code == 429:
+                time.sleep(min(120, 30 * (attempt + 1)))
+            last_error = error
+            if error.code != 429 and attempt >= 1:
+                break
+        except (URLError, TimeoutError, OSError, ValueError) as error:
+            last_error = error
+            if attempt >= 1:
+                break
+        time.sleep(2)
+    if east - west > 4 and not (isinstance(last_error, HTTPError) and last_error.code == 429):
+        middle = (west + east) / 2
+        print(f'[facilities] Splitting slow query at latitude {south}, longitude {middle}', flush=True)
+        left = fetch_bbox(south, west, north, middle)
+        right = fetch_bbox(south, middle, north, east)
+        return {'elements': left['elements'] + right['elements']}
+    raise RuntimeError(f'Facility source failed for latitude {south}; cached sections retained') from last_error
 
 
 def publish(force=False):
@@ -24,17 +63,13 @@ def publish(force=False):
         if not force and path.exists() and time.time() - path.stat().st_mtime < 7 * 86400:
             body = json.loads(path.read_text(encoding='utf-8'))
         else:
-            query = ('[out:json][timeout:60];nwr[amenity~"^(hospital|clinic|school|fire_station)$"]'
-                     f'({south},67,{south + 1},99);out center 100001;')
-            body = json.loads(request_bytes('https://overpass-api.de/api/interpreter?data=' + quote(query)))
-            if body.get('remark') or len(body.get('elements', [])) > 100000:
-                raise ValueError('OSM returned an incomplete strip; the published catalog is unchanged')
+            body = fetch_bbox(south, 67, south + 1, 99)
             body['retrieved_at'] = datetime.now(timezone.utc).isoformat()
             write(path, body)
             print(f'[facilities downloaded] latitude {south}; {len(body["elements"])} mapped records', flush=True)
             time.sleep(1)
         return south, body
-    with ThreadPoolExecutor(max_workers=2) as executor:
+    with ThreadPoolExecutor(max_workers=1) as executor:
         sections = list(executor.map(fetch_strip, range(5, 37)))
     for south, body in sections:
         oldest = min(oldest, body['retrieved_at'])

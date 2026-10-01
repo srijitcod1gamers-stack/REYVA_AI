@@ -30,3 +30,13 @@ jobs:
           B2_BUCKET: ${{ secrets.B2_BUCKET }}
           B2_KEY_ID: ${{ secrets.B2_KEY_ID }}
           B2_APPLICATION_KEY: ${{ secrets.B2_APPLICATION_KEY }}
+      - name: Register the published facility catalog in production
+        run: |
+          python - <<'PY'
+          import json, urllib.request
+          request = urllib.request.Request('https://reyva-ai.pages.dev/api/facilities', headers={'User-Agent':'Mozilla/5.0 REYVA-facility-health/1.0'})
+          with urllib.request.urlopen(request, timeout=30) as response:
+              catalog = json.load(response)
+          assert catalog['complete_query'] and catalog['facilities'] > 0
+          print('Published facilities:', catalog['facilities'], catalog['retrieved_at'])
+          PY

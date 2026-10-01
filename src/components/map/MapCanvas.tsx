@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import maplibregl, { type Map as LibreMap, type StyleSpecification } from 'maplibre-gl';
 import { MapboxOverlay } from '@deck.gl/mapbox';
+import { ScatterplotLayer } from '@deck.gl/layers';
 import { Compass, Crosshair, Minus, Plus, RotateCcw } from 'lucide-react';
 import { useWeather } from '../../providers/WeatherProvider';
 import { createLayers } from './layers';
@@ -54,6 +55,7 @@ interface Props {
   rainfallGrid?: ValidatedRainfallGrid;
   syncView?: { lng: number; lat: number; zoom: number };
   onViewChange?: (v: { lng: number; lat: number; zoom: number }) => void;
+  facilities?: { coordinates: Coordinate; name: string; kind: string }[];
 }
 export default function MapCanvas({
   compact = false,
@@ -61,6 +63,7 @@ export default function MapCanvas({
   rainfallGrid,
   syncView,
   onViewChange,
+  facilities,
 }: Props) {
   const w = useWeather(),
     container = useRef<HTMLDivElement>(null),
@@ -95,6 +98,8 @@ export default function MapCanvas({
         interleaved: false,
         layers: [],
         useDevicePixels: Math.min(devicePixelRatio, 2),
+        getTooltip: ({ object }) =>
+          object?.kind && object?.name ? `${object.name}\n${object.kind}` : null,
       });
       instance.addControl(deck);
       overlay.current = deck;
@@ -153,8 +158,8 @@ export default function MapCanvas({
     }
   }, []);
   const layers = useMemo(
-    () =>
-      createLayers({
+    () => [
+      ...createLayers({
         frame: w.frame,
         event: w.selected,
         events: w.events,
@@ -165,7 +170,37 @@ export default function MapCanvas({
         onPick: pick,
         resolution,
       }),
-    [w.frame, w.selected, w.events, w.variable, w.layers, w.compare, w.view, pick, compact, resolution],
+      ...(facilities
+        ? [
+            new ScatterplotLayer({
+              id: 'mapped-exposed-facilities',
+              data: facilities,
+              pickable: true,
+              getPosition: (item: NonNullable<Props['facilities']>[number]) => item.coordinates,
+              getFillColor: [139, 223, 202, 230],
+              radiusUnits: 'pixels',
+              getRadius: 4,
+              stroked: true,
+              getLineColor: [13, 27, 35, 255],
+              lineWidthUnits: 'pixels',
+              getLineWidth: 1,
+            }),
+          ]
+        : []),
+    ],
+    [
+      w.frame,
+      w.selected,
+      w.events,
+      w.variable,
+      w.layers,
+      w.compare,
+      w.view,
+      pick,
+      compact,
+      resolution,
+      facilities,
+    ],
   );
   useEffect(() => {
     overlay.current?.setProps({ layers });

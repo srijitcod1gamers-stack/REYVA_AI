@@ -174,7 +174,7 @@ function LiveImpact() {
       <div className="impact-layout">
         <div className="impact-map panel">
           <Suspense fallback={<div className="loading-line" />}>
-            <MapCanvas />
+            <MapCanvas facilities={exposure?.assets} />
           </Suspense>
           <span className="map-data-tag">
             {w.frame.grid ? 'NATIVE GEFS CELLS / THRESHOLD FOOTPRINT' : 'SAMPLED GEFS VALUES'}
@@ -197,6 +197,11 @@ function LiveImpact() {
                     </p>
                   ))}
                   <p className="fine-print">{exposure.method}</p>
+                  {exposure.assets.length > 30 && (
+                    <p className="fine-print">
+                      Showing the first 30 facilities. Export includes every mapped facility found.
+                    </p>
+                  )}
                   {exposure.assets.slice(0, 30).map((a) => (
                     <a
                       key={a.id}
@@ -213,7 +218,13 @@ function LiveImpact() {
                   >
                     Export facility assessment
                   </button>
-                  <small>OpenStreetMap / Overpass, retrieved {exposure.fetched_at}</small>
+                  <small>
+                    ©{' '}
+                    <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noreferrer">
+                      OpenStreetMap contributors
+                    </a>{' '}
+                    (ODbL), snapshot retrieved {exposure.fetched_at}
+                  </small>
                 </div>
               )}
             </>
