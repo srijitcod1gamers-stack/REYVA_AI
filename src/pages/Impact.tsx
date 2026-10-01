@@ -184,7 +184,11 @@ function LiveImpact() {
           <SectionLabel>Response planning</SectionLabel>
           {w.frame.grid && (
             <>
-              <button className="primary-button full" disabled={loading} onClick={assess}>
+              <button
+                className="primary-button full"
+                disabled={loading || (Boolean(w.frame.grid) && w.frame.hour !== w.hour)}
+                onClick={assess}
+              >
                 {loading ? 'Checking mapped facilities...' : 'Find exposed facilities'}
               </button>
               {error && <p role="alert">{error}</p>}

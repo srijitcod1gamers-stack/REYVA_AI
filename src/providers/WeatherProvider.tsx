@@ -75,6 +75,7 @@ export function WeatherProvider({ children }: { children: ReactNode }) {
     [selectedId, setSelectedId] = useState('WX-024');
   const [frame, setFrame] = useState<ForecastFrame | null>(null),
     [hour, updateHour] = useState(96);
+  const [frameOwnerId, setFrameOwnerId] = useState<string | null>(null);
   const [playing, setPlaying] = useState(false),
     [speed, setSpeed] = useState(1),
     [replay, setReplay] = useState(() => window.location.pathname === '/replay');
@@ -155,6 +156,7 @@ export function WeatherProvider({ children }: { children: ReactNode }) {
       .then((data) => {
         if (!controller.signal.aborted) {
           setFrame(data);
+          setFrameOwnerId(selected.id);
           setError(null);
         }
       })
@@ -211,7 +213,7 @@ export function WeatherProvider({ children }: { children: ReactNode }) {
   }, [mode]);
   const value = useMemo<WeatherState | null>(
     () =>
-      selected && frame
+      selected && frame && frameOwnerId === selected.id
         ? {
             events: activeEvents,
             selected,
@@ -219,6 +221,13 @@ export function WeatherProvider({ children }: { children: ReactNode }) {
             hour,
             setHour,
             selectEvent: (id) => {
+              if (id !== selected.id) {
+                const next = activeEvents.find((event) => event.id === id);
+                if (next?.id.startsWith('GRID-')) {
+                  updateHour(next.leadTime);
+                  setPlaying(false);
+                }
+              }
               setSelectedId(id);
               setLocation(null);
               setLocationQuery(null);
@@ -264,6 +273,7 @@ export function WeatherProvider({ children }: { children: ReactNode }) {
       events,
       selected,
       frame,
+      frameOwnerId,
       hour,
       setHour,
       playing,

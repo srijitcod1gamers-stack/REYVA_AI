@@ -177,3 +177,36 @@ test('native screening advisory exports GeoJSON without invented exposure counts
   await page.getByRole('button', { name: 'GeoJSON' }).click();
   expect((await download).suggestedFilename()).toMatch(/\.geojson$/);
 });
+
+test('selecting another native event assesses that event at its peak forecast step', async ({
+  page,
+}) => {
+  const other = { ...event, id: 'GRID-RAINFALL-2', name: 'Rainfall object 2', leadTime: 72 };
+  await page.route('**/api/events', (route) =>
+    route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify([event, other]),
+    }),
+  );
+  await page.route('**/api/exposure?**', async (route) => {
+    const url = new URL(route.request().url());
+    expect(url.searchParams.get('event_id')).toBe(other.id);
+    expect(url.searchParams.get('hour')).toBe('72');
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        assets: [{ id: 'node/1', name: 'Test hospital', kind: 'hospital', coordinates: [85, 20] }],
+        counts: { hospital: 1 },
+        method: 'Mapped representative point',
+        fetched_at: '2026-10-01T00:00:00Z',
+      }),
+    });
+  });
+  await page.goto('/events');
+  await page.locator('.event-table-row').filter({ hasText: other.id }).click();
+  await page.locator('a[href="/impact"]').first().click();
+  await page.getByRole('button', { name: 'Find exposed facilities' }).click();
+  await expect(page.locator('.exposure-results p').first()).toContainText('1 mapped facilities');
+});

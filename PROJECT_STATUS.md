@@ -29,7 +29,7 @@ Remaining work includes publishing a private inference service after the release
 
 ## Verification and operation
 
-Production API responses and all five pages were checked against the migrated datasets. TypeScript build, Worker typecheck, formatting, nine unit tests, eighteen Python tests and four browser tests passed. Windows Playwright preview teardown required terminating only its preview process after the tests completed.
+Production API responses and all five pages were checked against the migrated datasets. TypeScript build, Worker typecheck, formatting, nine unit tests, eighteen Python tests and five browser tests passed. Windows Playwright preview teardown required terminating only its preview process after the tests completed.
 
 Run locally: `npm.cmd run dev:all`. API mode needs the B2 settings in `cloudflare/.dev.vars`. Refresh and publish a native cycle: `npm.cmd run ml:refresh`. Publish prepared data and model reports: `npm.cmd run ml:publish`. Secrets are excluded from Git and browser variables.
 
@@ -42,3 +42,5 @@ CI dependency repair: event partitioning lives in the lightweight validation mod
 Verified cloud runs: forecast publication https://github.com/srijitcod1gamers-stack/REYVA_AI/actions/runs/36906485790 and final application/ML contract CI https://github.com/srijitcod1gamers-stack/REYVA_AI/actions/runs/36912433830 both passed. Facility ingestion uses resumable sections, bounded requests, backoff and spatial query splitting; incomplete or outdated snapshots are refused.
 
 Live facility check: GRID-RAINFALL-2 at T+72h intersected 259 mapped facilities (43 hospitals, 212 schools, 4 clinics). The 190,805-facility catalog was published as 42 immutable B2 tiles before its pointer. Facility counts describe mapped potential exposure, not confirmed damage. Forecast freshness does not establish forecast accuracy; verification requires matching predictions against subsequent observations.
+
+Selecting a different native event opens its peak lead time and prevents displaying another event's cached frame during loading. Facility assessment is disabled until the selected forecast time has loaded.
