@@ -174,7 +174,7 @@ function LiveImpact() {
       <div className="impact-layout">
         <div className="impact-map panel">
           <Suspense fallback={<div className="loading-line" />}>
-            <MapCanvas facilities={exposure?.assets} />
+            <MapCanvas focus facilities={exposure?.assets} />
           </Suspense>
           <span className="map-data-tag">
             {w.frame.grid ? 'NATIVE GEFS CELLS / THRESHOLD FOOTPRINT' : 'SAMPLED GEFS VALUES'}

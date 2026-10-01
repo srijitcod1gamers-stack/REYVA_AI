@@ -51,6 +51,7 @@ const style: StyleSpecification = {
 };
 interface Props {
   compact?: boolean;
+  focus?: boolean;
   resolution?: number;
   rainfallGrid?: ValidatedRainfallGrid;
   syncView?: { lng: number; lat: number; zoom: number };
@@ -59,6 +60,7 @@ interface Props {
 }
 export default function MapCanvas({
   compact = false,
+  focus = false,
   resolution,
   rainfallGrid,
   syncView,
@@ -84,8 +86,8 @@ export default function MapCanvas({
       instance = new maplibregl.Map({
         container: container.current,
         style,
-        center: compact ? w.frame.centroid : [82.8, 21.5],
-        zoom: compact ? 5.35 : container.current.clientWidth < 600 ? 3.6 : 4.25,
+        center: compact || focus ? w.frame.centroid : [82.8, 21.5],
+        zoom: compact || focus ? 5.35 : container.current.clientWidth < 600 ? 3.6 : 4.25,
         minZoom: 2,
         maxZoom: 12,
         maxPitch: 60,
