@@ -6,16 +6,13 @@ import '@fontsource/ibm-plex-mono/400.css';
 import '@fontsource/ibm-plex-mono/500.css';
 import './styles.css';
 import App from './App';
-import { WeatherProvider } from './providers/WeatherProvider';
 import { ErrorBoundary } from './components/ui/Primitives';
 
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>
     <ErrorBoundary>
       <BrowserRouter>
-        <WeatherProvider>
-          <App />
-        </WeatherProvider>
+        <App />
       </BrowserRouter>
     </ErrorBoundary>
   </React.StrictMode>,

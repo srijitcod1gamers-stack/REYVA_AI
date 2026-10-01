@@ -5,6 +5,7 @@ workers_dev = true
 
 [vars]
 MODE = "live"
+GRID_MODE = "published"
 ALLOWED_ORIGIN = "http://127.0.0.1:5173,https://reyva-ai.pages.dev"
 # Set ML_API_ORIGIN to your private HTTPS FastAPI endpoint for deployed inference.
 # Set ML_API_KEY and ADMIN_API_TOKEN as Worker secrets, never in this file.

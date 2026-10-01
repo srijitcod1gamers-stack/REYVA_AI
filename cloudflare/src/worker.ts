@@ -4,9 +4,12 @@ import { LiveWeatherProvider } from '../../shared/liveWeather';
 import { distanceKm } from '../../shared/simulation';
 import type { Coordinate, WeatherEvent } from '../../shared/types';
 import { b2IsConfigured, getB2Object } from './b2';
+import { GriddedWeather, readPublished } from './gridded';
+import { assessExposure } from './exposure';
 
 interface Env {
   MODE?: 'live' | 'demo';
+  GRID_MODE?: 'published';
   ALLOWED_ORIGIN?: string;
   ML_API_ORIGIN?: string;
   ML_API_KEY?: string;
@@ -158,6 +161,146 @@ async function mlRequest(request: Request, env: Env, path: string): Promise<Resp
 
 async function liveApi(request: Request, env: Env, url: URL, ctx: ExecutionContext): Promise<Response> {
   const path = url.pathname;
+  if (path === '/api/replay') return json(request, env, await readPublished(env, 'replay/catalog.json'));
+  if (/^\/api\/(replay|verification)\/[a-z0-9-]+$/.test(path)) {
+    const id = path.split('/').at(-1)!;
+    const catalog = await readPublished<{ cases: { id: string; key: string }[] }>(
+      env,
+      'replay/catalog.json',
+    );
+    const item = catalog.cases.find((item) => item.id === id);
+    return item
+      ? json(request, env, await readPublished(env, item.key))
+      : failure(request, env, 'Historical case not found', 404);
+  }
+  if (path === '/api/datasets')
+    return json(request, env, await readPublished(env, 'model-output/inventory.json'));
+  if (path === '/api/ml/status' && !env.ML_API_ORIGIN) {
+    return json(request, env, await readPublished(env, 'model-output/status.json'));
+  }
+  if (
+    env.GRID_MODE === 'published' &&
+    !path.startsWith('/api/ml/') &&
+    !path.startsWith('/api/downscaled/')
+  ) {
+    const provider = await new GriddedWeather(env).load();
+    const events = provider.events();
+    if (path === '/api/health')
+      return json(request, env, {
+        status: 'ok',
+        mode: 'live',
+        language: 'TypeScript',
+        source: 'NOAA GEFS native 0.25° grids',
+        forecast: 'Regional native-grid threshold detection and object association',
+        initialized_at: events[0].provenance.run,
+        ml_service_configured: Boolean(env.ML_API_ORIGIN && env.ML_API_KEY),
+      });
+    if (path === '/api/events') {
+      ctx.waitUntil(
+        (async () => {
+          await cacheMetadata(env, path, events);
+          if (env.WEATHER_DB) {
+            const frame = provider.frame(events[0].id, 72);
+            const metadata = {
+              initialization: frame.initializedAt,
+              ensemble_members: frame.ensemble.total,
+              resolution_degrees: frame.grid!.resolution_degrees,
+              bounds: [68, 6, 98, 36],
+              objects: events.length,
+            };
+            await env.WEATHER_DB.batch([
+              env.WEATHER_DB.prepare(
+                'INSERT INTO model_runs(id,initialized_at,model_name,source,status,metadata_json) VALUES(?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET metadata_json=excluded.metadata_json,status=excluded.status',
+              ).bind(
+                `GEFS-${frame.initializedAt}`,
+                frame.initializedAt,
+                'GEFS 0.25° five-member mean',
+                frame.grid!.source,
+                'published native screening',
+                JSON.stringify(metadata),
+              ),
+              env.WEATHER_DB.prepare(
+                'INSERT INTO datasets(id,kind,storage_key,initialized_at,published_at,metadata_json) VALUES(?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET initialized_at=excluded.initialized_at,published_at=excluded.published_at,metadata_json=excluded.metadata_json',
+              ).bind(
+                'raster/live/latest.json',
+                'live_catalog',
+                'raster/live/latest.json',
+                frame.initializedAt,
+                frame.publishedAt,
+                JSON.stringify(metadata),
+              ),
+            ]);
+          }
+        })(),
+      );
+      return json(request, env, events);
+    }
+    if (path === '/api/alerts') {
+      const alerts = provider.alerts();
+      ctx.waitUntil(cacheMetadata(env, path, alerts));
+      return json(request, env, alerts);
+    }
+    if (path.startsWith('/api/events/')) {
+      const event = eventById(events, path.slice('/api/events/'.length));
+      return event ? json(request, env, event) : failure(request, env, 'Event not found', 404);
+    }
+    if (path.startsWith('/api/trajectory/')) {
+      const event = eventById(events, path.slice('/api/trajectory/'.length));
+      return event
+        ? json(request, env, event.trajectory)
+        : failure(request, env, 'Event not found', 404);
+    }
+    const event = eventById(events, url.searchParams.get('event_id'));
+    if (!event) return failure(request, env, 'Event not found', 404);
+    const hour = validNumber(url.searchParams.get('hour') ?? '96', 72, 240);
+    if (hour === null) return failure(request, env, 'hour must be from 72 to 240', 400);
+    if (path === '/api/forecast') return json(request, env, provider.frame(event.id, hour));
+    if (path === '/api/exposure') {
+      try {
+        return json(request, env, await assessExposure(provider.frame(event.id, hour)));
+      } catch (error) {
+        return failure(
+          request,
+          env,
+          error instanceof Error ? error.message : 'Facility assessment unavailable',
+          503,
+        );
+      }
+    }
+    if (path === '/api/impact') {
+      const frame = provider.frame(event.id, hour);
+      return json(request, env, {
+        event_id: event.id,
+        timestamp: frame.timestamp,
+        severity: frame.severity,
+        area_km2: frame.areaKm2,
+        footprints: frame.polygons,
+        method: 'Sum of spherical areas of contiguous threshold-exceedance native grid cells',
+        exposure: null,
+        provenance: event.provenance,
+      });
+    }
+    if (path === '/api/risk' || path === '/api/live/risk') {
+      const lat = validNumber(url.searchParams.get('lat'), -90, 90),
+        lon = validNumber(url.searchParams.get('lon'), -180, 180);
+      if (lat === null || lon === null)
+        return failure(request, env, 'Valid lat and lon are required', 400);
+      const risk = provider.risk(
+        [lon, lat],
+        event.id,
+        hour,
+        url.searchParams.get('name') || 'Selected grid cell',
+      );
+      if (risk) return json(request, env, risk);
+      return failure(
+        request,
+        env,
+        'Location is outside the published 68–98°E, 6–36°N forecast domain. Expand the pipeline bounds to cover it.',
+        422,
+      );
+    }
+    return failure(request, env, 'Endpoint not found', 404);
+  }
   if (path === '/api/health')
     return json(request, env, {
       status: 'ok',

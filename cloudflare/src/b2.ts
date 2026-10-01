@@ -45,7 +45,12 @@ export async function getB2Object(env: B2Env, objectKey: string): Promise<Respon
   if (!configured(env)) throw new Error('Backblaze B2 is not configured');
   if (!/^[a-z0-9-]+$/.test(env.B2_REGION)) throw new Error('Invalid Backblaze B2 region');
 
-  const endpoint = new URL(env.B2_ENDPOINT);
+  const rawEndpoint = env.B2_ENDPOINT.trim();
+  const endpoint = new URL(
+    !rawEndpoint.includes('://') && rawEndpoint.endsWith('.backblazeb2.com')
+      ? `https://${rawEndpoint}`
+      : rawEndpoint,
+  );
   if (
     endpoint.protocol !== 'https:' ||
     endpoint.username ||

@@ -1,80 +1,178 @@
 import { test, expect } from '@playwright/test';
-
+import { events } from '../../shared/fixtures';
+import { frameFor } from '../../shared/simulation';
+const event = {
+  ...events[0],
+  id: 'GRID-RAINFALL-1',
+  name: 'Rainfall object 1',
+  leadTime: 120,
+  provenance: {
+    kind: 'forecast',
+    source: 'NOAA GEFS test fixture',
+    model: 'GEFS native grid',
+    run: '2026-10-01T06:00:00Z',
+    disclaimer: 'Forecast screening test fixture',
+  },
+  trajectory: events[0].trajectory,
+};
+const grid = {
+  latitudes: [20, 20.25],
+  longitudes: [85, 85.25],
+  values: [
+    [30, 40],
+    [50, 60],
+  ],
+};
+const caseData = {
+  id: 'fani-2019',
+  hour: 96,
+  initialization: '2019-04-27T00:00:00Z',
+  valid_time: '2019-05-01T00:00:00Z',
+  source: 'NOAA GEFS / CHIRPS fixture',
+  forecast: grid,
+  observation: grid,
+  interpolation: grid,
+  metrics: { mae_mm: 2, rmse_mm: 3, observed_cells: 4, scope: 'Reference land' },
+  resolution_degrees: { forecast: 0.25, observation: 0.05 },
+  note: 'Actual verification window',
+};
 test.beforeEach(async ({ page }) => {
-  await page.route('https://ensemble-api.open-meteo.com/v1/ensemble**', async (route) => {
+  await page.route('**/api/**', async (route) => {
     const url = new URL(route.request().url());
-    const lats = (url.searchParams.get('latitude') || '').split(',').map(Number);
-    const lons = (url.searchParams.get('longitude') || '').split(',').map(Number);
-    const start = Date.parse('2026-09-28T00:00:00Z');
-    const time = Array.from({ length: 240 }, (_, i) =>
-      new Date(start + i * 3600000).toISOString().slice(0, 16),
-    );
-    const points = lats.map((latitude, index) => ({
-      latitude,
-      longitude: lons[index],
-      hourly: {
-        time,
-        precipitation: time.map(() => (index === 0 ? 7 : 2)),
-        precipitation_spread: time.map(() => 1),
-        wind_gusts_10m: time.map(() => (index === 0 ? 90 : 35)),
-        wind_gusts_10m_spread: time.map(() => 4),
-        temperature_2m: time.map(() => (index === 13 ? 40 : 29)),
-        temperature_2m_spread: time.map(() => 1),
-        pressure_msl: time.map(() => 1002),
-        relative_humidity_2m: time.map(() => 80),
+    const hour = Number(url.searchParams.get('hour') ?? 120);
+    const frame = {
+      ...frameFor(events[0], hour, false),
+      hour,
+      grid: {
+        fields: { rainfall: grid, wind: grid, pressure: grid },
+        resolution_degrees: 0.25,
+        source: 'NOAA fixture',
       },
-    }));
-    await route.fulfill({
-      status: 200,
-      contentType: 'application/json',
-      body: JSON.stringify(points.length === 1 ? points[0] : points),
-    });
+      areaKm2: 2400,
+      detected: true,
+      availableHours: [72, 96, 120, 144, 168, 192, 216, 240],
+    };
+    let body: unknown;
+    switch (url.pathname) {
+      case '/api/events':
+        body = [event];
+        break;
+      case '/api/forecast':
+        body = frame;
+        break;
+      case '/api/risk':
+        body = {
+          name: url.searchParams.get('name'),
+          coordinates: [88.36, 22.57],
+          eventId: event.id,
+          severity: 'MODERATE',
+          probability: null,
+          confidence: null,
+          rainfall: { min: 30, max: 30 },
+          wind: 40,
+          arrivalHours: [hour, hour],
+          distanceKm: 200,
+          impact: 'Native cell forecast',
+          provenance: event.provenance,
+        };
+        break;
+      case '/api/replay':
+        body = {
+          cases: [
+            { id: 'fani-2019', name: 'Fani 2019', valid_time: caseData.valid_time },
+            { id: 'nargis-2008', name: 'Nargis 2008', valid_time: caseData.valid_time },
+          ],
+        };
+        break;
+      case '/api/replay/fani-2019':
+      case '/api/replay/nargis-2008':
+        body = caseData;
+        break;
+      case '/api/ml/status':
+        body = {
+          model: {
+            approved: false,
+            ready: false,
+            test: { model_mae_mm: 12.27, baseline_mae_mm: 12.24 },
+          },
+          tracker: { approved: false, test: { f1: 0.138 } },
+          training_samples: 52,
+          historical_cases: 12,
+          inference_connected: false,
+        };
+        break;
+      case '/api/alerts':
+        body = [
+          {
+            id: 'ALERT-1',
+            eventId: event.id,
+            title: 'Rainfall threshold advisory',
+            region: 'India',
+            coordinates: [85, 20],
+            severity: 'HIGH',
+            confidence: 0,
+            leadHours: 120,
+            timestamp: caseData.valid_time,
+            forecastWindow: caseData.valid_time,
+            rainfall: 60,
+            wind: 40,
+            population: 0,
+            polygon: frame.polygons[0],
+            acknowledged: false,
+            provenance: event.provenance,
+          },
+        ];
+        break;
+      default:
+        body = { error: 'Unsupported test endpoint' };
+    }
+    await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(body) });
   });
 });
-
-test('live forecast loads sampled GEFS values and coordinate risk', async ({ page }) => {
-  await page.goto('/', { waitUntil: 'domcontentloaded' });
+test('native forecast loads a grid, uses published time steps and returns coordinate risk', async ({
+  page,
+}) => {
+  await page.goto('/');
   await expect(page.getByRole('heading', { name: 'Weather signals' })).toBeVisible();
-  await expect(page.getByText('LIVE ENSEMBLE INPUT')).toBeVisible();
   await expect(page.locator('.maplibre-container canvas').first()).toBeVisible();
-  expect((await page.locator('.maplibre-container').boundingBox())?.height).toBeGreaterThan(300);
-  const slider = page.getByRole('slider', { name: 'Forecast hour' });
-  await slider.fill('144');
+  await page.getByRole('slider', { name: 'Forecast hour' }).fill('144');
   await expect(page.locator('.timeline-current')).toContainText('T+144h');
   await page.keyboard.press('Control+k');
   await page.getByRole('textbox', { name: 'Search commands or locations' }).fill('Kolkata');
   await page.getByRole('button', { name: /Kolkata.*West Bengal/ }).click();
   await expect(page.getByRole('heading', { name: 'Kolkata' })).toBeVisible();
-  await expect(page.getByText('LOCATION FORECAST')).toBeVisible();
 });
-
-test('mobile forecast tabs and live downscaling status are clear', async ({ page }) => {
+test('mobile navigation exposes measured withheld model status and real verification layers', async ({
+  page,
+}) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto('/');
-  await expect(page.getByRole('button', { name: '4D map' })).toBeVisible();
-  await page.getByRole('button', { name: /Signals · 3/ }).click();
-  await expect(page.getByRole('heading', { name: 'Weather signals' })).toBeVisible();
   await page.getByRole('button', { name: 'Intelligence' }).click();
-  await expect(page.getByRole('heading', { name: 'Heavy rainfall signal' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Rainfall object 1' })).toBeVisible();
   await page.goto('/downscaling');
-  await expect(page.getByRole('heading', { name: '5 km detail workspace' })).toBeVisible();
-  await expect(page.getByText('Awaiting validated rainfall model')).toBeVisible();
+  await expect(page.getByRole('heading', { name: '5 km rainfall model' })).toBeVisible();
+  await expect(page.getByText(/Trained checkpoint withheld/)).toBeVisible();
+  await expect(page.getByRole('heading', { name: /CHIRPS reference/ })).toBeVisible();
 });
-
-test('historical replay stays local when the live API is selected', async ({ page }) => {
-  await page.route('http://127.0.0.1:8787/api/**', async (route) => {
-    await route.fulfill({ status: 404, contentType: 'application/json', body: '{"error":"offline"}' });
-  });
+test('historical datasets remain accessible when the live event endpoint is unavailable', async ({
+  page,
+}) => {
+  await page.route('**/api/events', (route) =>
+    route.fulfill({
+      status: 503,
+      contentType: 'application/json',
+      body: '{"error":"Live source offline"}',
+    }),
+  );
   await page.goto('/replay');
-  await expect(page.getByRole('heading', { name: 'Historical event replay' })).toBeVisible();
-  await expect(page.getByRole('heading', { name: 'Cyclone Amphan' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Historical case explorer' })).toBeVisible();
+  await expect(page.locator('.dataset-grid-map canvas').first()).toBeVisible();
+  await page.getByLabel('Historical case').selectOption('nargis-2008');
   await expect(page.getByRole('alert')).toHaveCount(0);
 });
-
-test('live screening advisory exports GeoJSON', async ({ page }) => {
+test('native screening advisory exports GeoJSON without invented exposure counts', async ({ page }) => {
   await page.goto('/alerts');
   await expect(page.getByRole('heading', { name: 'Alert center' })).toBeVisible();
-  await expect(page.getByText('LIVE INPUT · NOT AN OFFICIAL WARNING')).toBeVisible();
   const download = page.waitForEvent('download');
   await page.getByRole('button', { name: 'GeoJSON' }).click();
   expect((await download).suggestedFilename()).toMatch(/\.geojson$/);

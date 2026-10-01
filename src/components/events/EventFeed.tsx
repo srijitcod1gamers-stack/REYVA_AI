@@ -74,7 +74,9 @@ export function EventFeed() {
           </strong>
           <span>
             {w.selected.provenance.kind === 'forecast'
-              ? '16 regional sample sites · day 3–10'
+              ? w.frame.grid
+                ? 'Native 0.25° grid / day 3–10'
+                : '16 regional sample sites · day 3–10'
               : [
                   'Pressure & circulation',
                   'Wind vectors',
@@ -102,7 +104,9 @@ export function EventFeed() {
         <span>
           <i className="status-dot" />
           {w.selected.provenance.kind === 'forecast'
-            ? '16 locations sampled'
+            ? w.frame.grid
+              ? `${w.frame.grid.fields.rainfall!.latitudes.length * w.frame.grid.fields.rainfall!.longitudes.length} native grid cells`
+              : '16 locations sampled'
             : '1.24M grid cells analyzed'}
         </span>
         <button onClick={() => navigate('/events')}>
@@ -142,10 +146,22 @@ export function EventCard({
       <div className="event-confidence">
         <span>
           <b>
-            {event.confidence}
-            <small>%</small>
+            {event.id.startsWith('GRID-') ? (
+              `${event.trajectory.length} steps`
+            ) : (
+              <>
+                {event.confidence}
+                <small>%</small>
+              </>
+            )}
           </b>
-          <small>{event.provenance.kind === 'forecast' ? 'Screening index' : 'Confidence'}</small>
+          <small>
+            {event.id.startsWith('GRID-')
+              ? 'Object association'
+              : event.provenance.kind === 'forecast'
+                ? 'Screening index'
+                : 'Confidence'}
+          </small>
         </span>
         {event.provenance.kind !== 'forecast' && (
           <Sparkline

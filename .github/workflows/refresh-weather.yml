@@ -1,0 +1,46 @@
+name: Refresh native NOAA forecast grids
+
+on:
+  schedule:
+    - cron: '30 3,9,15,21 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: native-weather-publication
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: pip install 'numpy<2' xarray dask netcdf4 cfgrib eccodes rasterio scipy metpy
+      - name: Download latest complete cycle and publish atomically
+        run: python -m ml_service.publish refresh
+        env:
+          B2_ENDPOINT: ${{ secrets.B2_ENDPOINT }}
+          B2_REGION: ${{ secrets.B2_REGION }}
+          B2_BUCKET: ${{ secrets.B2_BUCKET }}
+          B2_KEY_ID: ${{ secrets.B2_KEY_ID }}
+          B2_APPLICATION_KEY: ${{ secrets.B2_APPLICATION_KEY }}
+      - name: Check production native forecast health
+        run: |
+          python - <<'PY'
+          import json, urllib.request
+          request = urllib.request.Request('https://reyva-ai.pages.dev/api/health', headers={'User-Agent':'Mozilla/5.0 REYVA-forecast-health/1.0'})
+          with urllib.request.urlopen(request, timeout=30) as response:
+              health = json.load(response)
+          assert health['status'] == 'ok' and 'native' in health['source']
+          print('Published cycle:', health['initialized_at'])
+          for endpoint in ('events', 'alerts'):
+              request = urllib.request.Request('https://reyva-ai.pages.dev/api/' + endpoint, headers={'User-Agent':'Mozilla/5.0 REYVA-forecast-health/1.0'})
+              with urllib.request.urlopen(request, timeout=30) as response:
+                  print(endpoint, len(json.load(response)))
+          PY

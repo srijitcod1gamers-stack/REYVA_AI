@@ -69,23 +69,39 @@ def partition_events(records: list[dict]):
     return train_ids | forced_train, validation_ids, test_ids
 
 
-def score(model, scheduler, rows, device, output_cap_mm, residual_weight=1.0):
+def score(model, scheduler, rows, device, output_cap_mm, residual_weight=1.0, prediction_cache=None):
     baseline_errors = []
     model_errors = []
     baseline_peaks = []
     model_peaks = []
     for index, (_, baseline, truth, valid) in enumerate(rows):
-        y, x = best_patch(valid)
-        coarse = patch(baseline, y, x)
-        reference = patch(truth, y, x)
-        observed = patch(valid, y, x)
-        prediction = generate(
-            model, scheduler,
-            torch.from_numpy(coarse)[None, None].to(device), seed=index, max_mm=output_cap_mm,
-            residual_weight=residual_weight,
-        )[0, 0].cpu().numpy()
+        # Cover the entire reference grid, including the eastern cyclone coast.
+        # Selecting just the land-densest patch biases validation towards one
+        # geography and can hide failure on extreme rainfall.
+        prediction = np.zeros_like(baseline)
+        for y in range(0, baseline.shape[0], 64):
+            for x in range(0, baseline.shape[1], 64):
+                tile = baseline[y:y+64, x:x+64]
+                mask = valid[y:y+64, x:x+64]
+                if not mask.any():
+                    continue
+                h, w = tile.shape
+                padded = np.pad(tile, ((0,64-h),(0,64-w)), mode='edge')
+                key = (index, y, x)
+                residual = None if prediction_cache is None else prediction_cache.get(key)
+                if residual is None:
+                    residual = generate(model, scheduler,
+                        torch.from_numpy(padded)[None,None].to(device),
+                        seed=index*10000+y*100+x, max_mm=output_cap_mm,
+                        return_residual=True)[0,0].cpu().numpy()
+                    if prediction_cache is not None:
+                        prediction_cache[key] = residual
+                predicted = np.expm1(np.clip(np.log1p(padded) + residual_weight * residual,
+                    0, np.log1p(output_cap_mm)))
+                prediction[y:y+h,x:x+w] = predicted[:h,:w]
+        coarse, reference, observed = baseline, truth, valid
         if observed.sum() < 512:
-            raise ValueError("Held-out patch has too few CHIRPS-covered land cells")
+            raise ValueError('Held-out grid has too few CHIRPS-covered land cells')
         baseline_errors.extend((coarse[observed] - reference[observed]).ravel().tolist())
         model_errors.extend((prediction[observed] - reference[observed]).ravel().tolist())
         reference_peak = float(np.percentile(reference[observed], 99))
@@ -120,8 +136,10 @@ def evaluate_checkpoint(catalog: Path, output: Path):
     )
     model = UNet2DModel.from_pretrained(output / "model").to(device)
     scheduler = create_scheduler()
+    prediction_cache = {}
+    print(f"Evaluating whole regional grids on {device}; validation noise seeds are fixed", flush=True)
     validation_candidates = [
-        (weight, score(model, scheduler, val_rows, device, output_cap_mm, weight))
+        (weight, score(model, scheduler, val_rows, device, output_cap_mm, weight, prediction_cache))
         for weight in (value / 10 for value in range(1, 11))
     ]
     residual_weight, validation = min(
@@ -141,7 +159,7 @@ def evaluate_checkpoint(catalog: Path, output: Path):
         "output_cap_mm": output_cap_mm,
         "residual_weight": residual_weight,
         "method": "coarse-anchored conditional residual DDPM; event-held-out validation",
-        "validation_scope": "CHIRPS-covered land cells",
+        "validation_scope": "All CHIRPS-covered land cells across complete regional grids",
         "train_events": sorted(train_ids),
         "validation_events": sorted(val_ids),
         "test_events": sorted(test_ids),

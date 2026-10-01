@@ -19,12 +19,13 @@ const endpoints = [
 const liveEndpoints = [
   { id: 'live-risk', path: '/live/risk?lat=22.57&lon=88.36&hour=96', label: 'Live coordinate risk' },
   { id: 'events', path: '/events', label: 'Screened events' },
-  { id: 'forecast', path: '/forecast?event_id=LIVE-RAIN&hour=96', label: 'Forecast frame' },
+  { id: 'forecast', path: '/forecast?hour=96', label: 'Forecast frame' },
   { id: 'alerts', path: '/alerts', label: 'Screening advisories' },
-  { id: 'impact', path: '/impact?event_id=LIVE-RAIN&hour=96', label: 'Approximate footprint' },
+  { id: 'impact', path: '/impact?hour=96', label: 'Native-grid footprint' },
   { id: 'ml-status', path: '/ml/status', label: 'Model validation status' },
-  { id: 'ml-track', path: '/ml/track/LIVE-RAIN?hour=96', label: 'Validated graph track' },
-  { id: 'downscaled', path: '/downscaled/LIVE-RAIN?hour=96', label: 'Validated 5 km rainfall' },
+  { id: 'datasets', path: '/datasets', label: 'Prepared dataset inventory' },
+  { id: 'replay', path: '/replay', label: 'Historical cases' },
+  { id: 'exposure', path: '/exposure?hour=96', label: 'Mapped facility exposure' },
 ];
 export default function APIExplorer() {
   const w = useWeather(),
@@ -42,12 +43,9 @@ export default function APIExplorer() {
     try {
       if (providerMode === 'demo') setResult(demoApi(new URL(`/api${path}`, location.origin)));
       else {
-        const r = await fetch(
-          `${import.meta.env.VITE_API_BASE_URL || '/api'}${path}`,
-          {
-            signal: AbortSignal.timeout(12000),
-          },
-        );
+        const r = await fetch(`${import.meta.env.VITE_API_BASE_URL || '/api'}${path}`, {
+          signal: AbortSignal.timeout(12000),
+        });
         setResult({ status: r.status, body: await r.json() });
       }
     } catch (error) {

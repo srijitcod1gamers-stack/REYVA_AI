@@ -63,7 +63,13 @@ export function LayerManager() {
           <div className="eyebrow">WEATHER FIELD</div>
           <div className="layer-variables">
             {Object.entries(variableInfo)
-              .filter(([id]) => !w.frame.samples?.length || !['anomaly', 'ensemble'].includes(id))
+              .filter(
+                ([id]) =>
+                  w.selected.provenance.kind === 'simulated' ||
+                  (w.frame.grid
+                    ? ['rainfall', 'wind', 'pressure'].includes(id)
+                    : !['anomaly', 'ensemble'].includes(id)),
+              )
               .map(([id, info]) => (
                 <button
                   key={id}
@@ -79,14 +85,14 @@ export function LayerManager() {
               ))}
           </div>
           {groups
-            .filter((g) => !w.frame.samples?.length || !g.label.startsWith('EXPOSURE'))
+            .filter((g) => w.selected.provenance.kind === 'simulated' || !g.label.startsWith('EXPOSURE'))
             .map((g) => (
               <div key={g.label}>
                 <div className="eyebrow">{g.label}</div>
                 {g.layers
                   .filter(
                     (l) =>
-                      !w.frame.samples?.length ||
+                      w.selected.provenance.kind === 'simulated' ||
                       !['ensemble', 'wind', 'population', 'hospitals', 'roads', 'agriculture'].includes(
                         l.id,
                       ),
@@ -114,7 +120,7 @@ export function LayerManager() {
                   })}
               </div>
             ))}
-          {!w.frame.samples?.length && (
+          {w.selected.provenance.kind === 'simulated' && (
             <>
               <div className="eyebrow">AI FIELDS · SIMULATED</div>
               <div className="layer-variables">
@@ -142,9 +148,11 @@ export function LayerManager() {
             </>
           )}
           <p className="fine-print">
-            {w.frame.samples?.length
-              ? 'Colored circles are GEFS ensemble mean values at 16 sampled locations. Screening footprints are approximate, not official hazard polygons.'
-              : 'District boundaries and verified infrastructure can be connected through the geospatial API. Field detail is illustrative, not validated.'}
+            {w.frame.grid
+              ? 'Raster cells are native NOAA GEFS values. Outlines follow contiguous rain >=25 mm/24h or gust >=50 km/h cells. AI layers and simulated assets are disabled.'
+              : w.frame.samples?.length
+                ? 'Colored circles are GEFS ensemble mean values at 16 sampled locations. Screening footprints are approximate, not official hazard polygons.'
+                : 'District boundaries and verified infrastructure can be connected through the geospatial API. Field detail is illustrative, not validated.'}
           </p>
         </div>
       )}
@@ -159,7 +167,7 @@ export function MapLegend() {
       <div>
         <strong>
           {w.aiField === 'none'
-            ? w.frame.samples?.length && w.variable === 'wind'
+            ? (w.frame.grid || w.frame.samples?.length) && w.variable === 'wind'
               ? '10 m wind gusts'
               : info.label
             : `${w.aiField === 'original' ? '12 km' : '5 km'} ${w.aiField === 'ai' ? 'AI' : w.aiField} rainfall`}
@@ -176,13 +184,21 @@ export function MapLegend() {
         ))}
       </div>
       <div className="legend-source">
-        <span>{w.frame.samples?.length ? 'LIVE SAMPLED FIELD' : 'SIMULATED FIELD'}</span>
         <span>
-          {w.frame.samples?.length
-            ? 'GEFS 0.25° mean'
-            : w.aiField === 'none'
-              ? '12 km → ~5 km'
-              : w.aiField.toUpperCase()}
+          {w.frame.grid
+            ? 'NATIVE FORECAST GRID'
+            : w.frame.samples?.length
+              ? 'LIVE SAMPLED FIELD'
+              : 'SIMULATED FIELD'}
+        </span>
+        <span>
+          {w.frame.grid
+            ? 'GEFS 0.25° / 5 members'
+            : w.frame.samples?.length
+              ? 'GEFS 0.25° mean'
+              : w.aiField === 'none'
+                ? '12 km → ~5 km'
+                : w.aiField.toUpperCase()}
         </span>
       </div>
     </div>

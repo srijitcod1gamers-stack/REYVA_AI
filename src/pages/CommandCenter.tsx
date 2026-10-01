@@ -32,12 +32,12 @@ export default function CommandCenter({ replay = false }: { replay?: boolean }) 
     }
   }, [replay]);
   useEffect(() => {
-    if (w.frame.samples?.length) {
+    if (w.selected.provenance.kind === 'forecast') {
       w.setMode('meteorology');
       w.setAiField('none');
       w.setCompare(false);
     }
-  }, [w.frame.samples?.length]);
+  }, [w.selected.provenance.kind]);
   return (
     <div className={`command-center ${focus ? 'map-focused' : ''} mobile-${mobileTab}`}>
       <div className="workspace-bar">
@@ -63,7 +63,7 @@ export default function CommandCenter({ replay = false }: { replay?: boolean }) 
             <Activity size={13} />
             <span>Meteorology</span>
           </button>
-          {!w.frame.samples?.length && (
+          {w.selected.provenance.kind === 'simulated' && (
             <button
               className={w.mode === 'response' ? 'active response' : ''}
               onClick={() => w.setMode('response')}
@@ -137,8 +137,12 @@ export default function CommandCenter({ replay = false }: { replay?: boolean }) 
                   { id: 'rainfall', label: 'Rainfall', icon: CloudRain },
                   { id: 'wind', label: 'Wind', icon: Wind },
                   {
-                    id: w.frame.samples?.length ? 'temperature' : 'anomaly',
-                    label: w.frame.samples?.length ? 'Temperature' : 'Anomaly',
+                    id: w.frame.grid ? 'pressure' : w.frame.samples?.length ? 'temperature' : 'anomaly',
+                    label: w.frame.grid
+                      ? 'Pressure'
+                      : w.frame.samples?.length
+                        ? 'Temperature'
+                        : 'Anomaly',
                     icon: Activity,
                   },
                 ].map(({ id, label, icon: Icon }) => (
@@ -147,7 +151,7 @@ export default function CommandCenter({ replay = false }: { replay?: boolean }) 
                     className={w.variable === id && w.aiField === 'none' ? 'active' : ''}
                     onClick={() => {
                       w.setAiField('none');
-                      w.setVariable(id as 'rainfall' | 'wind' | 'temperature' | 'anomaly');
+                      w.setVariable(id as 'rainfall' | 'wind' | 'pressure' | 'temperature' | 'anomaly');
                     }}
                   >
                     <Icon size={14} />
@@ -170,7 +174,7 @@ export default function CommandCenter({ replay = false }: { replay?: boolean }) 
             </div>
             <div className="map-domain-label">
               <Globe2 size={12} />
-              <span>INDIAN OCEAN · {w.replay ? 'REPLAY' : 'GEFS SAMPLE DOMAIN'}</span>
+              <span>INDIAN OCEAN · {w.replay ? 'REPLAY' : 'GEFS REGIONAL DOMAIN'}</span>
             </div>
             {w.compare && (
               <div className="comparison-key panel">

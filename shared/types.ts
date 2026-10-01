@@ -65,6 +65,22 @@ export interface ForecastFrame {
   impact: ImpactAssessment;
   samples?: { coordinates: Coordinate; metrics: WeatherMetrics }[];
   ensembleSpread?: { precipitationHourly: number; windGust: number; temperature: number };
+  grid?: WeatherGrid;
+  availableHours?: number[];
+  areaKm2?: number;
+  detected?: boolean;
+  initializedAt?: string;
+  publishedAt?: string;
+}
+export interface ScalarGrid {
+  latitudes: number[];
+  longitudes: number[];
+  values: (number | null)[][];
+}
+export interface WeatherGrid {
+  fields: Partial<Record<WeatherVariable, ScalarGrid>>;
+  resolution_degrees: number;
+  source: string;
 }
 export interface WeatherEvent {
   id: string;

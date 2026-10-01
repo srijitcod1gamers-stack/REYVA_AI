@@ -14,7 +14,7 @@ export function TimelineController() {
           <span className="timeline-range">4D EXPLORER</span>
         </div>
         <div className="timeline-current">
-          <b>T+{w.hour}h</b>
+          <b>T+{w.frame.hour}h</b>
           <span>{utc(w.frame.timestamp)} UTC</span>
           <span className="forecast-chip">
             {w.replay
@@ -46,7 +46,7 @@ export function TimelineController() {
               aria-label="Previous forecast step"
               onClick={() => {
                 w.setPlaying(false);
-                w.setHour(w.hour - 6);
+                w.setHour(w.hour - (w.frame.grid ? 24 : 6));
               }}
               disabled={w.hour <= 72}
             >
@@ -56,7 +56,7 @@ export function TimelineController() {
               aria-label="Next forecast step"
               onClick={() => {
                 w.setPlaying(false);
-                w.setHour(w.hour + 6);
+                w.setHour(w.hour + (w.frame.grid ? 24 : 6));
               }}
               disabled={w.hour >= 240}
             >
@@ -100,7 +100,7 @@ export function TimelineController() {
               type="range"
               min="72"
               max="240"
-              step="1"
+              step={w.frame.grid ? 24 : 1}
               value={w.hour}
               onChange={(e) => {
                 w.setPlaying(false);

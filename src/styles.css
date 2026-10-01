@@ -4807,3 +4807,127 @@ tbody tr:hover {
   color: #6f8998;
   font-weight: 400;
 }
+
+/* Native dataset verification workspaces */
+.model-workspace {
+  height: 100%;
+  overflow-y: auto;
+}
+.model-workspace > .page {
+  height: auto;
+  overflow: visible;
+}
+.dataset-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 24px;
+  padding: 20px;
+  margin-bottom: 24px;
+}
+.dataset-toolbar label {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  color: var(--muted, #97b1c3);
+}
+.dataset-toolbar select {
+  max-width: 100%;
+  padding: 10px;
+  border: 1px solid #344956;
+  background: #14232d;
+  color: #e1edef;
+  border-radius: 5px;
+}
+.dataset-metrics {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 18px;
+  margin: 24px 0;
+}
+.dataset-metrics > div {
+  padding: 18px;
+  min-width: 0;
+}
+.dataset-metrics small {
+  display: block;
+  color: #96b1c3;
+  margin-bottom: 12px;
+}
+.dataset-metrics strong {
+  display: block;
+  color: #dcebed;
+  font-size: 18px;
+  line-height: 1.5;
+}
+.dataset-comparison {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 16px;
+}
+.dataset-comparison h3 {
+  padding: 18px;
+  font-size: 14px;
+}
+.dataset-grid-map {
+  position: relative;
+  height: 480px;
+  min-height: 350px;
+}
+.dataset-grid-map > div {
+  position: absolute;
+  inset: 0;
+}
+.dataset-comparison .dataset-grid-map {
+  height: 380px;
+}
+.dataset-loading {
+  padding: 60px;
+  text-align: center;
+}
+.model-release .panel {
+  padding: 24px;
+}
+.model-release {
+  padding-bottom: 0;
+}
+.model-release h2 {
+  font-size: 28px;
+  margin: 14px 0;
+}
+.model-release p {
+  line-height: 1.7;
+}
+.exposure-results {
+  margin: 18px 0;
+}
+.exposure-results a {
+  display: block;
+  padding: 8px 0;
+  color: #8ed9c6;
+}
+.dataset-page .info-note {
+  margin-top: 24px;
+  padding: 20px;
+  line-height: 1.7;
+}
+@media (max-width: 1000px) {
+  .dataset-comparison {
+    grid-template-columns: 1fr;
+  }
+  .dataset-metrics {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+@media (max-width: 600px) {
+  .dataset-metrics {
+    grid-template-columns: 1fr;
+  }
+  .dataset-toolbar label {
+    flex-direction: column;
+    align-items: start;
+  }
+  .dataset-grid-map {
+    height: 380px;
+  }
+}

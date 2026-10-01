@@ -94,7 +94,17 @@ export function WeatherProvider({ children }: { children: ReactNode }) {
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const activeEvents = replay ? replayEvents : events;
   const selected = activeEvents.find((e) => e.id === selectedId) ?? activeEvents[0];
-  const setHour = useCallback((h: number) => updateHour(clamp(h, 72, 240)), []);
+  const setHour = useCallback(
+    (h: number) => {
+      const hours = frame?.availableHours;
+      updateHour(
+        hours?.length
+          ? hours.reduce((best, v) => (Math.abs(v - h) < Math.abs(best - h) ? v : best))
+          : clamp(h, 72, 240),
+      );
+    },
+    [frame?.availableHours],
+  );
   const notify = useCallback((message: string) => {
     setToast(message);
     if (timer.current) clearTimeout(timer.current);
@@ -120,6 +130,10 @@ export function WeatherProvider({ children }: { children: ReactNode }) {
       .getEvents(controller.signal)
       .then((data) => {
         setEvents(data);
+        if (selectedId === 'WX-024' && data[0]?.id.startsWith('GRID-')) {
+          setSelectedId(data[0].id);
+          updateHour(data[0].leadTime);
+        }
         setError(data.length ? null : 'No events returned by this provider.');
       })
       .catch((e) => {
@@ -175,12 +189,12 @@ export function WeatherProvider({ children }: { children: ReactNode }) {
             setPlaying(false);
             return 240;
           }
-          return Math.min(240, h + 1);
+          return frame?.availableHours?.find((value) => value > h) ?? Math.min(240, h + 1);
         }),
-      350 / speed,
+      (frame?.grid ? 1800 : 350) / speed,
     );
     return () => clearInterval(interval);
-  }, [playing, speed]);
+  }, [playing, speed, frame?.grid, frame?.availableHours]);
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
       if ((e.ctrlKey || e.metaKey) && e.key === 'k') {

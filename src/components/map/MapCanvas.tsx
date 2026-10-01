@@ -299,7 +299,7 @@ export default function MapCanvas({
         className="maplibre-container"
         aria-label="Interactive weather intelligence map"
       />
-      {!compact && !w.frame.samples?.length && (
+      {!compact && w.selected.provenance.kind === 'simulated' && (
         <WindField map={map} center={w.frame.centroid} enabled={w.layers.has('wind')} />
       )}
       {!ready && !mapError && (

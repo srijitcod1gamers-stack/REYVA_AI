@@ -38,10 +38,16 @@ export class ApiWeatherProvider implements WeatherDataProvider {
   constructor(private base: string) {}
   private async request<T>(path: string, signal?: AbortSignal): Promise<T> {
     const response = await fetch(`${this.base}${path}`, {
-      signal: signal ?? AbortSignal.timeout(12000),
+      signal: signal
+        ? AbortSignal.any([signal, AbortSignal.timeout(30000)])
+        : AbortSignal.timeout(30000),
     });
-    if (!response.ok)
-      throw new Error(`Weather service returned ${response.status}. Check the API connection.`);
+    if (!response.ok) {
+      const detail = (await response.json().catch(() => ({}))) as { error?: string };
+      throw new Error(
+        detail.error || `Weather service returned ${response.status}. Check the API connection.`,
+      );
+    }
     return response.json() as Promise<T>;
   }
   getEvents(signal?: AbortSignal) {

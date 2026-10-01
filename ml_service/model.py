@@ -37,6 +37,7 @@ def generate(
     seed: int = 0,
     max_mm: float = 1000,
     residual_weight: float = 1.0,
+    return_residual: bool = False,
 ) -> torch.Tensor:
     if coarse_mm.ndim != 4 or coarse_mm.shape[1] != 1:
         raise ValueError("Expected [batch, 1, height, width] rainfall tensor")
@@ -52,7 +53,9 @@ def generate(
     model.eval()
     for step in scheduler.timesteps:
         residual = model(torch.cat((sample, condition), dim=1), step).sample
-        sample = scheduler.step(residual, step, sample).prev_sample
+        sample = scheduler.step(residual, step, sample, generator=generator).prev_sample
+    if return_residual:
+        return sample.clamp(-1, 1) * RESIDUAL_LIMIT
     maximum = torch.log1p(torch.tensor(max_mm, device=sample.device, dtype=sample.dtype))
     corrected_log = coarse_log + residual_weight * sample.clamp(-1, 1) * RESIDUAL_LIMIT
     return torch.expm1(corrected_log.clamp(0, maximum)).clamp(0, max_mm)

@@ -121,7 +121,9 @@ export default function EventDetail() {
               <Metric label="10m wind" value={w.frame.metrics.wind} unit="km/h" />
               <Metric label="Sea-level pressure" value={w.frame.metrics.pressure} unit="hPa" />
               <Metric label="Relative humidity" value={w.frame.metrics.humidity} unit="%" />
-              <Metric label="Temperature" value={w.frame.metrics.temperature} unit="°C" />
+              {!w.frame.grid && (
+                <Metric label="Temperature" value={w.frame.metrics.temperature} unit="°C" />
+              )}
               <Metric label="Anomaly score" value={w.frame.metrics.anomaly} unit="%" />
             </div>
           )}
@@ -213,7 +215,7 @@ function LiveEventDetail() {
           </div>
           <TimelineController />
           <div className="panel trajectory-table">
-            <SectionLabel>Screened maxima · six-hour sampling</SectionLabel>
+            <SectionLabel>Forecast object positions</SectionLabel>
             <div className="table-scroll">
               <table>
                 <thead>
@@ -250,7 +252,9 @@ function LiveEventDetail() {
             <Metric label="Rainfall / 24h" value={w.frame.metrics.rainfall} unit="mm" />
             <Metric label="Wind gust" value={w.frame.metrics.wind} unit="km/h" />
             <Metric label="Pressure" value={w.frame.metrics.pressure} unit="hPa" />
-            <Metric label="Temperature" value={w.frame.metrics.temperature} unit="°C" />
+            {!w.frame.grid && (
+              <Metric label="Temperature" value={w.frame.metrics.temperature} unit="°C" />
+            )}
           </div>
           <div className="info-note">{event.provenance.disclaimer}</div>
           <button

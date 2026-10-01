@@ -16,6 +16,19 @@ from .data import open_field, valid_time
 from .tracking import SphericalTracker, spherical_grid_graph
 from .validation import approve_tracker, split_events
 
+_graphs = {}
+def graph_on(lat, lon, device):
+    key = (lat.tobytes(), lon.tobytes(), str(device))
+    if key not in _graphs:
+        graph = spherical_grid_graph(lat, lon)
+        graph.sources = graph.sources.to(device)
+        graph.targets = graph.targets.to(device)
+        graph.weights = graph.weights.to(device)
+        if graph.dgl_graph is not None:
+            graph.dgl_graph = graph.dgl_graph.to(device)
+        _graphs[key] = graph
+    return _graphs[key]
+
 
 def prepare(sample: dict):
     arrays = [
@@ -61,12 +74,13 @@ def f1(predicted, truth):
 
 def evaluate(model, rows, means, scales, threshold, decision_threshold=0.5):
     model.eval()
+    device = next(model.parameters()).device
     scores, baselines = [], []
     with torch.no_grad():
         for _, features, labels, valid, lat, lon in rows:
-            graph = spherical_grid_graph(lat, lon)
-            normalized = torch.from_numpy(((features - means) / scales).reshape(-1, features.shape[-1]))
-            probabilities = torch.sigmoid(model(graph, normalized)).numpy().reshape(labels.shape)
+            graph = graph_on(lat, lon, device)
+            normalized = torch.from_numpy(((features - means) / scales).reshape(-1, features.shape[-1])).to(device)
+            probabilities = torch.sigmoid(model(graph, normalized)).cpu().numpy().reshape(labels.shape)
             scores.append(f1(probabilities[valid] >= decision_threshold, labels[valid] == 1))
             baselines.append(f1(features[..., 0][valid] >= threshold, labels[valid] == 1))
     return {"f1": float(np.mean(scores)), "threshold_baseline_f1": float(np.mean(baselines)), "cases": len(rows)}
@@ -100,7 +114,9 @@ def train(catalog: Path, output: Path, epochs: int):
     baseline_threshold = float(records[0]["baseline_threshold"])
     if any(float(sample["baseline_threshold"]) != baseline_threshold for sample in records):
         raise ValueError("All tracker samples must use one declared threshold baseline")
-    model = SphericalTracker(len(fields))
+    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    model = SphericalTracker(len(fields)).to(device)
+    print(f'Training graph mask model on {device}; release requires held-out F1 >=0.5', flush=True)
     optimizer = torch.optim.AdamW(model.parameters(), lr=1e-3)
     best = -1.0
     output.mkdir(parents=True, exist_ok=True)
@@ -109,21 +125,21 @@ def train(catalog: Path, output: Path, epochs: int):
         rng.shuffle(groups[0])
         model.train()
         for _, features, labels, valid, lat, lon in groups[0]:
-            graph = spherical_grid_graph(lat, lon)
-            values = torch.from_numpy(((features - means) / scales).reshape(-1, len(fields)))
-            truth = torch.from_numpy(labels.reshape(-1))
-            observed = torch.from_numpy(valid.reshape(-1))
+            graph = graph_on(lat, lon, device)
+            values = torch.from_numpy(((features - means) / scales).reshape(-1, len(fields))).to(device)
+            truth = torch.from_numpy(labels.reshape(-1)).to(device)
+            observed = torch.from_numpy(valid.reshape(-1)).to(device)
             prediction = model(graph, values)
             loss = F.binary_cross_entropy_with_logits(
                 prediction[observed],
                 truth[observed],
-                pos_weight=torch.tensor(positive_weight, dtype=prediction.dtype),
+                pos_weight=torch.tensor(positive_weight, dtype=prediction.dtype, device=device),
             )
             optimizer.zero_grad()
             loss.backward()
             optimizer.step()
         validation = evaluate(model, groups[1], means, scales, baseline_threshold)
-        print(f"epoch {epoch + 1}: validation F1 {validation['f1']:.3f}")
+        print(f"epoch {epoch + 1}: validation F1 {validation['f1']:.3f}", flush=True)
         if validation["f1"] > best:
             best = validation["f1"]
             torch.save(model.state_dict(), output / "tracker.pt")
@@ -156,6 +172,8 @@ def train(catalog: Path, output: Path, epochs: int):
         "validation": validation,
         "test": test,
         "checkpoint_sha256": hashlib.sha256((output / "tracker.pt").read_bytes()).hexdigest(),
+        "catalog_sha256": hashlib.sha256(catalog.read_bytes()).hexdigest(),
+        "label_rule": "Observed precipitation >= local monthly p95 and >=1 mm/24h; missing land cells excluded",
     }
     (output / "tracker-validation.json").write_text(json.dumps(report, indent=2), encoding="utf-8")
     if not approved:

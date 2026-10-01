@@ -66,10 +66,12 @@ export function AppShell({ children }: { children: ReactNode }) {
             </strong>
             <small>
               {new Date(w.selected.provenance.run)
-                .toLocaleDateString('en-GB', {
+                .toLocaleString('en-GB', {
                   day: '2-digit',
                   month: 'short',
                   year: 'numeric',
+                  hour: '2-digit',
+                  minute: '2-digit',
                   timeZone: 'UTC',
                 })
                 .toUpperCase()}{' '}

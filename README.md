@@ -1,8 +1,10 @@
 # Weather Intelligence AI
 
-An SIH prototype for screening extreme weather signals in medium-range ensemble forecasts. The React command center and Cloudflare Worker backend are both TypeScript. The default command center fetches the latest NOAA GEFS 0.25° ensemble mean through [Open-Meteo](https://open-meteo.com/en/docs/ensemble-mean-api), samples 16 locations across India and adjacent seas, and displays rainfall, wind gust, temperature, pressure, six-hour signal movement, an approximate footprint, and coordinate risk. Forecast data is refreshed every 30 minutes while the page is open.
+An SIH weather screening and verification application with a React dashboard, a TypeScript Cloudflare Worker API, D1 metadata and private Backblaze B2 datasets. Production reads native NOAA GEFS 0.25-degree grids over 68-98E / 6-36N, with rainfall, gust and pressure fields at daily lead times from day 3 to day 10. Contiguous threshold cells form forecast objects; overlap and distance associate them through time. Footprint area is calculated from spherical cell areas.
 
-**Scientific boundary:** This is a screening prototype, not an official forecast or public warning. The sampled maximum path is not a continuous storm-centre track. Colored footprint rings are geometric estimates, not native-grid affected-area polygons. No calibrated event probability, historical EFI baseline, trained GNN, validated 5 km diffusion model, or authoritative population exposure dataset is connected. The live global ensemble source is about **25 km**, not the proposed 12 km NCMRWF input. The `/replay` route remains an explicitly simulated Amphan-inspired scenario.
+The historical explorer serves 12 prepared NOAA reforecast / CHIRPS verification cases. The downscaling lab compares actual coarse forecasts, CHIRPS 0.05-degree land observations and interpolation, alongside measured model validation reports. Impact intelligence finds OpenStreetMap facility representative points inside the selected footprint; mapping coverage is incomplete and population totals are not invented.
+
+**Scientific boundary:** Native-grid threshold screening is not a calibrated storm probability or an official warning. Five GEFS members are used, not the full ensemble. The selected historical cases are single 96-hour verification windows, not complete cyclone reconstructions. AI output is withheld unless event-held-out validation beats the declared baseline. A 0.05-degree observation or interpolation layer must not be described as a trained forecast. The current model release state is available at `/api/ml/status`.
 
 ## Run locally
 
@@ -19,7 +21,7 @@ To run the frontend and TypeScript Worker together in one terminal, use:
 npm.cmd run dev:all
 ```
 
-Open <http://127.0.0.1:5173/>. The default live view needs internet access to fetch GEFS forecasts. The bundled regional geographic boundaries still load without map tiles. Click the map to request a fresh coordinate forecast. Use the Day 3–10 slider to inspect changing samples, or open `/replay` for the offline scenario.
+Open <http://127.0.0.1:5173/>. Local API mode needs the B2 variables in `cloudflare/.dev.vars`; the same migrated datasets are then available through Wrangler. Set `VITE_DATA_PROVIDER=api` and `VITE_API_BASE_URL=/api` in `.env.local`. The native domain is regional; outside-domain queries return a clear coverage error. Historical cases remain available independently when the live cycle is stale.
 
 If `npm ci` reports `EPERM` while unlinking `lightningcss.win32-x64-msvc.node` on Windows, stop any running Vite, Wrangler, Playwright, or Node processes using this project, then retry. A loaded native module cannot be replaced while its process is running; OneDrive synchronization may also briefly hold the file.
 
@@ -33,19 +35,16 @@ Restart Vite after editing `.env.local`. MapTiler browser keys are visible to si
 
 ## What is implemented
 
-| View                     | Behavior                                                                                                     |
-| ------------------------ | ------------------------------------------------------------------------------------------------------------ |
-| `/`                      | Live sampled GEFS forecast map, weather variables, screening signals, day 3–10 timeline, coordinate forecast |
-| `/events`, `/events/:id` | Rainfall, wind/pressure and heat screening, sampled movement table                                           |
-| `/impact`                | Approximate footprint radius and area; no fabricated population exposure                                     |
-| `/alerts`                | Read-only screening advisories with JSON and GeoJSON export; no messages sent                                |
-| `/downscaling`           | Shows coarse input and a 5 km rainfall grid only when a validated model artifact and gridded run are present |
-| `/api`                   | Interactive TypeScript Worker API explorer                                                                   |
-| `/replay`                | Explicitly simulated Amphan-inspired historical scenario                                                     |
+- Native NOAA raster fields, contiguous-object footprints and daily object association.
+- Actual initialization and valid timestamps, five-member provenance and stale-cycle rejection.
+- Coordinate forecast inspection, advisory and footprint GeoJSON exports.
+- Twelve historical verification cases with observed land masking and complete-region interpolation scores.
+- Model checkpoints, measured validation reports and release gates; held-out predictions are never substituted with synthetic data.
+- Private B2 archive and signed Worker access; D1 event, trajectory, alert and dataset metadata.
+- Facility point-in-polygon assessment through OpenStreetMap / Overpass.
+- GitHub Actions refresh every six hours using encrypted B2 secrets, with publication pointers uploaded after their referenced files.
 
-Live detection currently uses transparent weather thresholds on sampled ensemble-mean fields. The private [FastAPI model service](ml_service/README.md) contains NetCDF/GRIB2 ingestion, a conditional diffusion trainer, an event-held-out validation gate, and a DGL graph network module. No training files or validated weights are present; the service does not invent 5 km output.
-
-The selected SIH training route is now implemented as a reproducible public-data preparation command: NOAA GEFSv12 reforecasts are paired with CHIRPS v3 0.05-degree daily observations, month-matched 2000-2019 climatologies produce EFI and observed extreme masks, and current gridded GEFS fields produce the private live catalog. Run `npm.cmd run ml:plan` to inspect it, then follow [the model-service instructions](ml_service/README.md#public-sih-data-route). The dashboard will continue to report that ML is unconfigured until trained artifacts pass the held-out gates and the private service is deployed.
+See [PROJECT_STATUS.md](PROJECT_STATUS.md) for deployment verification and the remaining scientific requirements.
 
 ## Run the TypeScript API
 
@@ -61,7 +60,7 @@ Call:
 GET http://127.0.0.1:8787/api/live/risk?lat=22.57&lon=88.36&hour=96
 ```
 
-The Worker serves live `/api/events`, `/api/forecast`, `/api/risk`, `/api/live/risk`, `/api/alerts`, `/api/impact`, and `/api/trajectory/:id`. Coordinate-risk probability is `null`; a validated 5 km radius is not claimed. Set `VITE_DATA_PROVIDER=api` and `VITE_API_BASE_URL=http://127.0.0.1:8787/api` in `.env.local` to route the website through the Worker. Leave `VITE_DATA_PROVIDER` unset for the one-terminal live website, or use `demo` for offline fixtures. In `cloudflare/wrangler.toml`, `MODE="live"` is the default; `MODE="demo"` is an explicitly synthetic API mode. D1 and Backblaze B2 are optional for the live forecast endpoints. For deployment, set `ALLOWED_ORIGIN` to the Pages site and configure the Pages build with the deployed Worker URL.
+The Worker serves live `/api/events`, `/api/forecast`, `/api/risk`, `/api/live/risk`, `/api/alerts`, `/api/impact`, and `/api/trajectory/:id`. Coordinate-risk probability is `null`; a validated 5 km radius is not claimed. Set `VITE_DATA_PROVIDER=api` and `VITE_API_BASE_URL=http://127.0.0.1:8787/api` in `.env.local` to route the website through the Worker. Use `demo` only for explicit offline fixtures. Production and local API mode read the migrated native grids. In `cloudflare/wrangler.toml`, `MODE="live"` is the default; `MODE="demo"` is an explicitly synthetic API mode. Backblaze B2 is required for native published grids; D1 stores metadata. Production Pages proxies `/api` to the deployed Worker.
 
 The Worker also accepts private `ML_API_ORIGIN` and `ML_API_KEY` settings. It proxies `/api/ml/status`, `/api/ml/track/:eventId`, and `/api/downscaled/:eventId` to the Python service. D1 caches events, alerts, trajectories, and approved model metadata; apply its local migrations with `npm.cmd run db:migrate:local`. Administrative cache routes require `ADMIN_API_TOKEN`. Copy `cloudflare/.dev.vars.example` to `cloudflare/.dev.vars` for local secrets. Never place internal keys in a `VITE_` variable. In production, set `ML_API_ORIGIN` to a private HTTPS endpoint and configure `ML_API_KEY` as a Worker secret.
 
@@ -75,4 +74,4 @@ npm.cmd test
 npm.cmd run test:e2e
 ```
 
-The TypeScript Worker shares forecast logic with the website through `shared/liveWeather.ts`. D1 can cache event and alert metadata. Private validated assets can be read from Backblaze B2 through `/api/assets/:key`; configure `B2_ENDPOINT`, `B2_REGION`, `B2_BUCKET`, `B2_KEY_ID`, and `B2_APPLICATION_KEY` in `cloudflare/.dev.vars`. Use a bucket-scoped read-only B2 application key. In production, add the same five values with `wrangler secret put`. NCMRWF historical NEPS-G/NCUM inputs, ERA5/IMDAA baselines, trained GNN/diffusion weights and verification datasets are not included or claimed to be publicly accessible. [NCMRWF dataset portal](https://rds.ncmrwf.gov.in/datasets).
+The production TypeScript Worker reads signed B2 objects through `cloudflare/src/gridded.ts`; `shared/liveWeather.ts` remains the optional sparse browser fallback. D1 can cache event and alert metadata. Private validated assets can be read from Backblaze B2 through `/api/assets/:key`; configure `B2_ENDPOINT`, `B2_REGION`, `B2_BUCKET`, `B2_KEY_ID`, and `B2_APPLICATION_KEY` in `cloudflare/.dev.vars`. Use a bucket-scoped read-only B2 application key. In production, add the same five values with `wrangler secret put`. NCMRWF historical NEPS-G/NCUM inputs and ERA5/IMDAA baselines are not included. Prepared NOAA/CHIRPS datasets and trained artifacts are in the private B2 archive. [NCMRWF dataset portal](https://rds.ncmrwf.gov.in/datasets).

@@ -348,8 +348,13 @@ function LiveIntelligence() {
       </div>
       <div className="intelligence-scroll">
         <div className="key-metrics">
-          <Metric label="Forecast lead" value={w.hour} unit="h" hint="Day 3–10" />
-          <Metric label="Sample sites" value={16} hint="Regional screening grid" />
+          <Metric label="Forecast lead" value={frame.hour} unit="h" hint="Day 3–10" />
+          <Metric
+            label={frame.grid ? 'Affected area' : 'Sample sites'}
+            value={frame.grid ? Math.round(frame.areaKm2 ?? 0) : 16}
+            unit={frame.grid ? 'km²' : ''}
+            hint={frame.grid ? 'Sum of threshold cells' : 'Regional screening grid'}
+          />
         </div>
         <div className="weather-metrics">
           <Metric label="Rainfall / 24h" value={frame.metrics.rainfall} unit="mm" />
@@ -357,10 +362,13 @@ function LiveIntelligence() {
           <Metric label="Pressure" value={frame.metrics.pressure} unit="hPa" />
         </div>
         <section className="panel-section">
-          <SectionLabel>Tracked sampled maximum</SectionLabel>
+          <SectionLabel>
+            {frame.grid ? 'Tracked forecast object' : 'Tracked sampled maximum'}
+          </SectionLabel>
           <p className="muted">
-            The path links the highest screening signal among 16 sampled locations at each six-hour step.
-            It is not a continuous storm-centre analysis.
+            {frame.grid
+              ? 'The path associates contiguous threshold objects at 24-hour intervals using overlap and centroid distance. Disconnected objects retain separate identities; a missing outline means this object is absent at this step.'
+              : 'The path links sampled maxima; it is not a continuous storm-centre analysis.'}
           </p>
         </section>
         {frame.ensembleSpread && (
@@ -374,18 +382,21 @@ function LiveIntelligence() {
           </section>
         )}
         <section className="panel-section">
-          <SectionLabel>Approximate affected area</SectionLabel>
+          <SectionLabel>
+            {frame.grid ? 'Native-grid footprint' : 'Approximate affected area'}
+          </SectionLabel>
           <p className="muted">
-            Colored rings are screening footprints around sampled coordinates. Their borders and area
-            have not been validated against a native-resolution weather grid.
+            {frame.grid
+              ? 'Outlines follow actual grid cells exceeding rainfall or wind thresholds. This is a native forecast screening boundary, not a 5 km prediction or verified impact.'
+              : 'Colored rings are screening footprints around sampled coordinates.'}
           </p>
         </section>
         <section className="panel-section">
           <SectionLabel>Model status</SectionLabel>
           <p className="muted">
-            Live GEFS ensemble mean fields are connected. Calibrated event probability, historical
-            anomaly index, GNN tracking and 5 km diffusion output still require trained models and
-            verification data.
+            Native GEFS fields, historical cases and measured model reports are connected. The trained
+            downscaler and graph tracker failed validation and remain withheld; see Downscaling lab for
+            results.
           </p>
         </section>
       </div>

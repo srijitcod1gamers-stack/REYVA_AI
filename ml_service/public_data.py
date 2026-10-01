@@ -520,7 +520,7 @@ def prepare_events(manifest: dict, root: Path, force: bool = False) -> tuple[Pat
             coarse_truth = _interpolate_to(observation, forecast_mean)
             coarse_threshold = _interpolate_to(observed_p95, forecast_mean)
             validity = (np.isfinite(coarse_truth) & np.isfinite(coarse_threshold)).astype(np.int8)
-            mask = ((coarse_truth >= coarse_threshold) & (validity == 1)).astype(np.int8)
+            mask = ((coarse_truth >= coarse_threshold) & (coarse_truth >= 1) & (validity == 1)).astype(np.int8)
             mask.attrs = {"units": "1", "definition": "CHIRPS daily precipitation >= local monthly 95th percentile"}
             validity.attrs = {"units": "1", "definition": "CHIRPS-covered land cell"}
             _write_field(_with_valid_time(forecast_mean, valid, "precipitation"), forecast_path)
@@ -666,7 +666,7 @@ def prepare_live(manifest: dict, root: Path, leads: list[int], force: bool = Fal
         efi_path = run_dir / "forecast-efi.nc"
         gust_path = run_dir / "forecast-wind-gust.nc"
         pressure_path = run_dir / "forecast-pressure-msl.nc"
-        if force or not all(path.exists() for path in (precip_path, efi_path, gust_path, pressure_path)):
+        if force or not all(path.exists() for path in (precip_path, gust_path, pressure_path)):
             values: dict[str, list[xr.DataArray]] = {name: [] for name in ("precipitation", "wind_gust", "pressure_msl")}
             with tempfile.TemporaryDirectory(prefix="reyva-live-") as directory:
                 for member in MEMBERS:
@@ -679,17 +679,14 @@ def prepare_live(manifest: dict, root: Path, leads: list[int], force: bool = Fal
             precipitation = xr.concat(values["precipitation"], dim="number")
             gust = xr.concat(values["wind_gust"], dim="number").mean("number")
             pressure = xr.concat(values["pressure_msl"], dim="number").mean("number")
-            climate_path = root / "climatology" / f"month-{valid.month:02d}.nc"
-            if not climate_path.exists():
-                raise RuntimeError(f"Missing month {valid.month} climatology for live EFI")
-            with xr.open_dataset(climate_path) as climate:
-                quantiles = _model_quantiles_on(
-                    climate["model_precipitation_quantiles"].load(), precipitation
-                )
+            # The prepared climatology is a 96-hour reforecast climate. Comparing
+            # other live leads against it would produce an invalid anomaly index.
+            # Publish native weather independently; the GNN requires lead-matched
+            # climatology before it can consume live EFI.
             efi = xr.DataArray(
-                extreme_forecast_index(precipitation.values, quantiles.values, QUANTILES),
+                np.full(precipitation.shape[-2:], np.nan, dtype=np.float32),
                 dims=("lat", "lon"), coords={"lat": precipitation.lat, "lon": precipitation.lon},
-                attrs={"units": "1"},
+                attrs={"units": "1", "status": "withheld: lead-matched operational climatology required"},
             )
             _write_field(_with_valid_time(precipitation.mean("number"), valid, "precipitation"), precip_path)
             _write_field(_with_valid_time(efi, valid, "efi"), efi_path)

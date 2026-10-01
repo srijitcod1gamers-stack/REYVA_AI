@@ -1,4 +1,4 @@
-import { lazy, Suspense, useEffect } from 'react';
+import { lazy, Suspense, useEffect, useState } from 'react';
 import {
   ArrowUpRight,
   Download,
@@ -17,6 +17,7 @@ import { ImpactDetail } from '../components/events/EventIntelligence';
 import { download, number } from '../utils/format';
 import { distanceKm } from '../../shared/simulation';
 import type { Coordinate } from '../../shared/types';
+import { datasetRequest } from './Historical';
 const MapCanvas = lazy(() => import('../components/map/MapCanvas'));
 export default function Impact() {
   const w = useWeather(),
@@ -108,18 +109,41 @@ export default function Impact() {
 }
 function LiveImpact() {
   const w = useWeather();
-  const ring = w.frame.polygons[0].geometry.coordinates[0];
+  const ring = w.frame.polygons[0]?.geometry.coordinates[0] ?? [];
   const radius = Math.round(
-    Math.max(...ring.map((point) => distanceKm(w.frame.centroid, point as Coordinate))),
+    Math.max(0, ...ring.map((point) => distanceKm(w.frame.centroid, point as Coordinate))),
   );
-  const area = Math.round(Math.PI * radius * radius);
+  const area = Math.round(w.frame.areaKm2 ?? Math.PI * radius * radius);
+  const [exposure, setExposure] = useState<{
+    assets: { id: string; name: string; kind: string; coordinates: Coordinate }[];
+    counts: Record<string, number>;
+    method: string;
+    fetched_at: string;
+  } | null>(null);
+  const [error, setError] = useState(''),
+    [loading, setLoading] = useState(false);
+  useEffect(() => {
+    setExposure(null);
+    setError('');
+  }, [w.selected.id, w.frame.hour]);
+  async function assess() {
+    setLoading(true);
+    setError('');
+    try {
+      setExposure(await datasetRequest(`/exposure?event_id=${w.selected.id}&hour=${w.frame.hour}`));
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Assessment failed');
+    } finally {
+      setLoading(false);
+    }
+  }
   return (
     <div className="page">
       <PageHeading
         eyebrow="HAZARD FOOTPRINT SCREENING"
-        title="Affected-area estimate"
-        description={`Approximate footprint around ${w.selected.region} at T+${w.hour}h.`}
-        actions={<DemoTag>GEOMETRIC ESTIMATE · NOT VALIDATED</DemoTag>}
+        title="Hazard footprint and facility exposure"
+        description={`Forecast threshold area at T+${w.frame.hour}h. Find mapped facilities inside this area for response planning.`}
+        actions={<DemoTag>{w.frame.grid ? 'NATIVE GRID FOOTPRINT' : 'SCREENING ESTIMATE'}</DemoTag>}
       />
       <div className="impact-kpis">
         <div className="panel">
@@ -129,7 +153,11 @@ function LiveImpact() {
           <Metric label="Approximate radius" value={radius} unit="km" />
         </div>
         <div className="panel">
-          <Metric label="Approximate area" value={number(area)} unit="km²" />
+          <Metric
+            label={w.frame.grid ? 'Threshold-exceedance area' : 'Approximate area'}
+            value={number(area)}
+            unit="km²"
+          />
         </div>
         <div className="panel">
           <Metric label="Rainfall / 24h" value={w.frame.metrics.rainfall} unit="mm" />
@@ -140,17 +168,58 @@ function LiveImpact() {
           <Suspense fallback={<div className="loading-line" />}>
             <MapCanvas />
           </Suspense>
-          <span className="map-data-tag">SAMPLED GEFS VALUES · APPROXIMATE RINGS</span>
+          <span className="map-data-tag">
+            {w.frame.grid ? 'NATIVE GEFS CELLS / THRESHOLD FOOTPRINT' : 'SAMPLED GEFS VALUES'}
+          </span>
         </div>
         <aside className="panel impact-side">
+          <SectionLabel>Response planning</SectionLabel>
+          {w.frame.grid && (
+            <>
+              <button className="primary-button full" disabled={loading} onClick={assess}>
+                {loading ? 'Checking mapped facilities...' : 'Find exposed facilities'}
+              </button>
+              {error && <p role="alert">{error}</p>}
+              {exposure && (
+                <div className="exposure-results">
+                  <p>{exposure.assets.length} mapped facilities inside the footprint.</p>
+                  {Object.entries(exposure.counts).map(([kind, count]) => (
+                    <p key={kind}>
+                      {kind}: <b>{count}</b>
+                    </p>
+                  ))}
+                  <p className="fine-print">{exposure.method}</p>
+                  {exposure.assets.slice(0, 30).map((a) => (
+                    <a
+                      key={a.id}
+                      href={`https://www.openstreetmap.org/${a.id}`}
+                      target="_blank"
+                      rel="noreferrer"
+                    >
+                      {a.name} / {a.kind}
+                    </a>
+                  ))}
+                  <button
+                    className="secondary-button full"
+                    onClick={() => download(`${w.selected.id}-facility-exposure.json`, exposure)}
+                  >
+                    Export facility assessment
+                  </button>
+                  <small>OpenStreetMap / Overpass, retrieved {exposure.fetched_at}</small>
+                </div>
+              )}
+            </>
+          )}
           <SectionLabel>Interpretation</SectionLabel>
           <p className="muted">
-            The highlighted outline is a screening radius around a sampled forecast location. It is not
-            an exact affected boundary, a 5 km model field, or a population exposure calculation.
+            The outline contains contiguous native cells exceeding 25 mm/24h rainfall or 50 km/h gusts.
+            Area is the sum of those cells, accounting for latitude. An empty outline means the selected
+            object is absent at this forecast step.
           </p>
           <p className="muted">
-            For a deployable impact analysis, intersect validated hazard polygons with current
-            population, facility and road datasets.
+            Check hospitals, clinics, schools and fire stations whose mapped positions lie inside the
+            forecast footprint. OpenStreetMap coverage can be incomplete. Population totals require a
+            separate census dataset and are not estimated here.
           </p>
           <button
             className="secondary-button full"
@@ -161,7 +230,7 @@ function LiveImpact() {
               })
             }
           >
-            <Download size={14} /> Export approximate GeoJSON
+            <Download size={14} /> Export footprint GeoJSON
           </button>
         </aside>
       </div>

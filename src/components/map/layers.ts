@@ -1,4 +1,4 @@
-import { PathLayer, PolygonLayer, ScatterplotLayer, TextLayer } from '@deck.gl/layers';
+import { BitmapLayer, PathLayer, PolygonLayer, ScatterplotLayer, TextLayer } from '@deck.gl/layers';
 import type { Layer, Color, PickingInfo } from '@deck.gl/core';
 import type { Coordinate, ForecastFrame, WeatherEvent, WeatherVariable } from '../../../shared/types';
 import { irregularRing } from '../../../shared/simulation';
@@ -137,7 +137,45 @@ export function createLayers({
       widthUnits: 'pixels',
     }),
   ];
-  if (frame.samples?.length) {
+  if (frame.grid) {
+    const field = frame.grid.fields[variable] || frame.grid.fields.rainfall!;
+    const scale =
+      variable === 'wind'
+        ? [0, 20, 40, 60, 100, 150]
+        : variable === 'pressure'
+          ? [960, 975, 990, 1005, 1020, 1035]
+          : [0, 10, 25, 50, 100, 200];
+    const canvas = document.createElement('canvas');
+    canvas.width = field.longitudes.length;
+    canvas.height = field.latitudes.length;
+    const context = canvas.getContext('2d')!;
+    const pixels = context.createImageData(canvas.width, canvas.height);
+    for (let y = 0; y < canvas.height; y++)
+      for (let x = 0; x < canvas.width; x++) {
+        const value = field.values[canvas.height - 1 - y][x];
+        if (value === null) continue;
+        const next = scale.findIndex((t) => value < t),
+          index = next === -1 ? 5 : Math.max(0, next - 1);
+        const color = rgb(variableInfo[variable].colors[index], value === 0 ? 0 : 175);
+        pixels.data.set(color, (y * canvas.width + x) * 4);
+      }
+    context.putImageData(pixels, 0, 0);
+    const dx = (field.longitudes[1] - field.longitudes[0]) / 2,
+      dy = (field.latitudes[1] - field.latitudes[0]) / 2;
+    layers.push(
+      new BitmapLayer({
+        id: 'native-weather-grid',
+        image: canvas,
+        bounds: [
+          field.longitudes[0] - dx,
+          field.latitudes[0] - dy,
+          field.longitudes.at(-1)! + dx,
+          field.latitudes.at(-1)! + dy,
+        ],
+        textureParameters: { minFilter: 'nearest', magFilter: 'nearest' },
+      }),
+    );
+  } else if (frame.samples?.length) {
     const scale =
       variable === 'rainfall'
         ? [0, 10, 25, 50, 100, 200]
@@ -218,7 +256,7 @@ export function createLayers({
         transitions: { getPolygon: 240, getElevation: 240 },
       }),
     );
-  if (visible.has('ensemble') && !frame.samples?.length) {
+  if (visible.has('ensemble') && event.provenance.kind === 'simulated') {
     const cone = [
       ...paths.map((p, i) => [p[0] - i * 0.045, p[1]] as Coordinate),
       ...[...paths].reverse().map((p, j) => [p[0] + (paths.length - 1 - j) * 0.045, p[1]] as Coordinate),
@@ -283,7 +321,7 @@ export function createLayers({
         transitions: { getPolygon: 250 },
       }),
     );
-  if (compare)
+  if (compare && event.provenance.kind === 'simulated')
     layers.push(
       new PathLayer<MapLine>({
         id: 'previous-run',
@@ -296,7 +334,7 @@ export function createLayers({
         widthUnits: 'pixels',
       }),
     );
-  if (variable === 'pressure')
+  if (variable === 'pressure' && event.provenance.kind === 'simulated')
     layers.push(
       new PathLayer<MapLine>({
         id: 'pressure-contours',
@@ -368,7 +406,7 @@ export function createLayers({
       }),
     );
   }
-  if (visible.has('population') || visible.has('hospitals'))
+  if (event.provenance.kind === 'simulated' && (visible.has('population') || visible.has('hospitals')))
     layers.push(
       new ScatterplotLayer({
         id: 'exposed-assets',
@@ -386,7 +424,7 @@ export function createLayers({
         },
       }),
     );
-  if (visible.has('agriculture'))
+  if (visible.has('agriculture') && event.provenance.kind === 'simulated')
     layers.push(
       new PolygonLayer({
         id: 'demo-cropland',
@@ -397,7 +435,7 @@ export function createLayers({
         lineWidthMinPixels: 1,
       }),
     );
-  if (visible.has('roads'))
+  if (visible.has('roads') && event.provenance.kind === 'simulated')
     layers.push(
       new PathLayer<MapLine>({
         id: 'demo-road-corridors',
