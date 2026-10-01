@@ -1,7 +1,7 @@
 import unittest
 
 from ml_service.validation import approve_downscaler, approve_tracker, split_events
-from ml_service.train import partition_events
+from ml_service.validation import partition_events
 
 try:
     import numpy as np

@@ -1,4 +1,4 @@
-import { lazy, Suspense, useEffect, useState } from 'react';
+import { lazy, Suspense, useEffect, useRef, useState } from 'react';
 import {
   ArrowUpRight,
   Download,
@@ -122,19 +122,27 @@ function LiveImpact() {
   } | null>(null);
   const [error, setError] = useState(''),
     [loading, setLoading] = useState(false);
+  const assessmentVersion = useRef(0);
   useEffect(() => {
+    assessmentVersion.current++;
     setExposure(null);
     setError('');
+    setLoading(false);
   }, [w.selected.id, w.frame.hour]);
   async function assess() {
+    const version = ++assessmentVersion.current;
     setLoading(true);
     setError('');
     try {
-      setExposure(await datasetRequest(`/exposure?event_id=${w.selected.id}&hour=${w.frame.hour}`));
+      const result = await datasetRequest<NonNullable<typeof exposure>>(
+        `/exposure?event_id=${w.selected.id}&hour=${w.frame.hour}`,
+      );
+      if (version === assessmentVersion.current) setExposure(result);
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Assessment failed');
+      if (version === assessmentVersion.current)
+        setError(e instanceof Error ? e.message : 'Assessment failed');
     } finally {
-      setLoading(false);
+      if (version === assessmentVersion.current) setLoading(false);
     }
   }
   return (

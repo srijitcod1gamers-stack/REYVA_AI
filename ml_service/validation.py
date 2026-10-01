@@ -15,6 +15,15 @@ def split_events(samples: list[dict]):
     return train, validation, test
 
 
+def partition_events(records: list[dict]):
+    evaluation = [record for record in records if record.get("split") != "train"]
+    train_ids, validation_ids, test_ids = split_events(evaluation)
+    forced_train = {record["event_id"] for record in records if record.get("split") == "train"}
+    if forced_train & (validation_ids | test_ids):
+        raise ValueError("Training-only events overlap held-out events")
+    return train_ids | forced_train, validation_ids, test_ids
+
+
 def approve_downscaler(validation: dict, test: dict):
     for group in (validation, test):
         values = [

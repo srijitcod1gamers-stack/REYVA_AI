@@ -134,7 +134,7 @@ def export():
         'inference_connected': False, 'published_at': datetime.now(timezone.utc).isoformat()})
     inventory = []
     for path in ROOT.rglob('*'):
-        if path.is_file() and 'published' not in path.parts and path.suffix in ('.nc', '.json'):
+        if path.is_file() and 'published' not in path.parts and 'facilities-cache' not in path.parts and path.suffix in ('.nc', '.json'):
             inventory.append(path)
     inventory.extend(p for p in Path('ml_service/artifacts').rglob('*') if p.is_file())
     write(OUTPUT / 'model-output/inventory.json', {'files': len(inventory),
@@ -193,7 +193,7 @@ def upload(raw=False):
             if path.name != 'migration-state.json']
     if raw:
         rows.extend((p, 'archive/' + p.as_posix()) for p in ROOT.rglob('*')
-                    if p.is_file() and 'published' not in p.parts and p.suffix in ('.nc', '.json'))
+                    if p.is_file() and 'published' not in p.parts and 'facilities-cache' not in p.parts and p.suffix in ('.nc', '.json'))
         rows.extend((p, 'archive/' + p.as_posix()) for p in Path('ml_service/artifacts').rglob('*') if p.is_file())
     # Publish pointers only after all referenced immutable data have been stored.
     pointers = [(p, k) for p, k in rows if k.endswith('latest.json') or k == 'replay/catalog.json']
@@ -204,6 +204,17 @@ def upload(raw=False):
         digest = hashlib.sha256(content).hexdigest()
         if completed.get(key) == digest:
             return key, digest, False
+        if key == 'raster/live/latest.json':
+            incoming = json.loads(content)
+            try:
+                with request(settings, 'GET', key) as response:
+                    current = json.load(response)
+                if datetime.fromisoformat(current['initialization'].replace('Z', '+00:00')) > datetime.fromisoformat(incoming['initialization'].replace('Z', '+00:00')):
+                    print('[publication] Retained the newer remote NOAA cycle', flush=True)
+                    return key, digest, False
+            except HTTPError as error:
+                if error.code != 404:
+                    raise
         for attempt in range(4):
             try:
                 with request(settings, 'PUT', key, content, 'application/json' if path.suffix == '.json' else 'application/octet-stream'):

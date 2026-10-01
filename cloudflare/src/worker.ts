@@ -173,10 +173,71 @@ async function liveApi(request: Request, env: Env, url: URL, ctx: ExecutionConte
       ? json(request, env, await readPublished(env, item.key))
       : failure(request, env, 'Historical case not found', 404);
   }
-  if (path === '/api/datasets')
-    return json(request, env, await readPublished(env, 'model-output/inventory.json'));
+  if (path === '/api/datasets') {
+    const [inventory, liveCatalog] = await Promise.all([
+      readPublished<Record<string, unknown>>(env, 'model-output/inventory.json'),
+      readPublished(env, 'raster/live/latest.json'),
+    ]);
+    return json(request, env, { ...inventory, live: liveCatalog });
+  }
   if (path === '/api/ml/status' && !env.ML_API_ORIGIN) {
-    return json(request, env, await readPublished(env, 'model-output/status.json'));
+    const status = await readPublished<{
+      published_at: string;
+      model: { approved: boolean; checkpoint_sha256: string; trained_at: string; method: string };
+      tracker: { approved: boolean; checkpoint_sha256: string; trained_at: string };
+    }>(env, 'model-output/status.json');
+    if (env.WEATHER_DB) {
+      const statements = [
+        env.WEATHER_DB.prepare(
+          'INSERT INTO datasets(id,kind,storage_key,published_at,metadata_json) VALUES(?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET published_at=excluded.published_at,metadata_json=excluded.metadata_json',
+        ).bind(
+          'model-output/status.json',
+          'validation_report',
+          'model-output/status.json',
+          status.published_at,
+          JSON.stringify(status),
+        ),
+        ...(
+          [
+            ['downscaler', status.model],
+            ['tracker', status.tracker],
+          ] as const
+        ).map(([name, report]) =>
+          env
+            .WEATHER_DB!.prepare(
+              'INSERT INTO model_runs(id,initialized_at,model_name,source,status,metadata_json) VALUES(?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET status=excluded.status,metadata_json=excluded.metadata_json',
+            )
+            .bind(
+              report.checkpoint_sha256,
+              report.trained_at,
+              name,
+              'event-held-out measured evaluation',
+              report.approved ? 'validated' : 'withheld: failed validation',
+              JSON.stringify(report),
+            ),
+        ),
+      ];
+      ctx.waitUntil(env.WEATHER_DB.batch(statements));
+    }
+    return json(request, env, status);
+  }
+  if (!env.ML_API_ORIGIN && (path.startsWith('/api/downscaled/') || path.startsWith('/api/ml/track/'))) {
+    const id = path.split('/').at(-1)!;
+    if (!/^[A-Za-z0-9_-]{1,80}$/.test(id)) return failure(request, env, 'Invalid event ID', 400);
+    if (forecastHour(url) === null)
+      return failure(request, env, 'hour must be an integer from 72 to 240', 400);
+    return json(
+      request,
+      env,
+      {
+        error:
+          'AI inference is withheld: the trained models failed held-out release criteria. Native forecast grids and measured model reports remain available.',
+        code: 'MODEL_VALIDATION_REQUIRED',
+        report_url: '/api/ml/status',
+        inference_connected: false,
+      },
+      503,
+    );
   }
   if (
     env.GRID_MODE === 'published' &&
@@ -257,7 +318,7 @@ async function liveApi(request: Request, env: Env, url: URL, ctx: ExecutionConte
     if (path === '/api/forecast') return json(request, env, provider.frame(event.id, hour));
     if (path === '/api/exposure') {
       try {
-        return json(request, env, await assessExposure(provider.frame(event.id, hour)));
+        return json(request, env, await assessExposure(provider.frame(event.id, hour), env));
       } catch (error) {
         return failure(
           request,

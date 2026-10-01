@@ -21,7 +21,7 @@ from diffusers import UNet2DModel
 
 from .data import paired_grids
 from .model import LOG_SCALE, RESIDUAL_LIMIT, create_model, create_scheduler, generate
-from .validation import approve_downscaler, split_events
+from .validation import approve_downscaler, partition_events
 
 
 def load_samples(catalog: Path):
@@ -58,15 +58,6 @@ def best_patch(mask: np.ndarray):
     integral = np.pad(mask.astype(np.int32), ((1, 0), (1, 0))).cumsum(0).cumsum(1)
     counts = integral[64:, 64:] - integral[:-64, 64:] - integral[64:, :-64] + integral[:-64, :-64]
     return tuple(int(value) for value in np.unravel_index(np.argmax(counts), counts.shape))
-
-
-def partition_events(records: list[dict]):
-    evaluation = [record for record in records if record.get("split") != "train"]
-    train_ids, validation_ids, test_ids = split_events(evaluation)
-    forced_train = {record["event_id"] for record in records if record.get("split") == "train"}
-    if forced_train & (validation_ids | test_ids):
-        raise ValueError("Training-only events overlap held-out events")
-    return train_ids | forced_train, validation_ids, test_ids
 
 
 def score(model, scheduler, rows, device, output_cap_mm, residual_weight=1.0, prediction_cache=None):

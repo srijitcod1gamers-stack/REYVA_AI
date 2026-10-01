@@ -1,4 +1,6 @@
 import type { Coordinate, ForecastFrame } from '../../shared/types';
+import type { B2Env } from './b2';
+import { readPublished } from './gridded';
 
 export function pointInFootprint(point: Coordinate, polygons: ForecastFrame['polygons']): boolean {
   const insideRing = (ring: number[][]) => {
@@ -26,7 +28,7 @@ type Result = {
 };
 const results = new Map<string, { expires: number; value: Result }>();
 const pending = new Map<string, Promise<Result>>();
-export async function assessExposure(frame: ForecastFrame): Promise<Result> {
+export async function assessExposure(frame: ForecastFrame, env: B2Env): Promise<Result> {
   const key = JSON.stringify(frame.polygons);
   const cached = results.get(key);
   if (cached && cached.expires > Date.now()) return cached.value;
@@ -34,64 +36,58 @@ export async function assessExposure(frame: ForecastFrame): Promise<Result> {
   const task = (async () => {
     const points = frame.polygons.flatMap((p) => p.geometry.coordinates[0]);
     let assets: Asset[] = [];
+    let retrievedAt = new Date().toISOString();
     if (points.length) {
       const west = Math.min(...points.map((p) => p[0])),
         east = Math.max(...points.map((p) => p[0])),
         south = Math.min(...points.map((p) => p[1])),
         north = Math.max(...points.map((p) => p[1]));
-      if ((east - west) * (north - south) > 12)
+      const catalog = await readPublished<{
+        bounds: number[];
+        retrieved_at: string;
+        complete_query: boolean;
+        tiles: Record<string, { key: string }>;
+      }>(env, 'geojson/facilities/latest.json');
+      if (!catalog.complete_query || Date.now() - Date.parse(catalog.retrieved_at) > 14 * 86400_000)
         throw new Error(
-          'Footprint is too large for a public facility query. Select a smaller object or import a regional facility dataset.',
+          'The facility snapshot is incomplete or overdue for refresh. No count has been published.',
         );
-      const query = `[out:json][timeout:20];nwr[amenity~"^(hospital|clinic|school|fire_station)$"](${south},${west},${north},${east});out center 10001;`;
-      const response = await fetch('https://overpass.private.coffee/api/interpreter', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/x-www-form-urlencoded',
-          'User-Agent': 'REYVA-AI-facility-assessment/1.0',
-          Referer: 'https://reyva-ai.pages.dev',
-        },
-        body: new URLSearchParams({ data: query }).toString(),
-        signal: AbortSignal.timeout(25_000),
+      if (
+        west < catalog.bounds[0] ||
+        south < catalog.bounds[1] ||
+        east > catalog.bounds[2] ||
+        north > catalog.bounds[3]
+      )
+        throw new Error('This footprint is outside the regional facility dataset coverage.');
+      const keys = [];
+      for (let lat = Math.floor(south / 5) * 5; lat <= north; lat += 5)
+        for (let lon = Math.floor(west / 5) * 5; lon <= east; lon += 5) {
+          const tile = catalog.tiles[`${lat}/${lon}`];
+          if (tile) keys.push(tile.key);
+        }
+      if (keys.length > 35) throw new Error('Select a smaller footprint for the facility assessment.');
+      const tiles = await Promise.all(keys.map((key) => readPublished<Asset[]>(env, key)));
+      assets = tiles.flat().filter((item) => {
+        const [lon, lat] = item.coordinates;
+        return (
+          lon >= west &&
+          lon <= east &&
+          lat >= south &&
+          lat <= north &&
+          pointInFootprint(item.coordinates, frame.polygons)
+        );
       });
-      if (!response.ok)
-        throw new Error(`Facility source unavailable (${response.status}); try again later.`);
-      const body = (await response.json()) as {
-        remark?: string;
-        elements: {
-          type: string;
-          id: number;
-          lat?: number;
-          lon?: number;
-          center?: { lat: number; lon: number };
-          tags?: Record<string, string>;
-        }[];
-      };
-      if (body.remark || body.elements.length > 10000)
-        throw new Error('Facility query was incomplete; no exposure count has been published.');
-      assets = body.elements.flatMap((item) => {
-        const lat = item.lat ?? item.center?.lat,
-          lon = item.lon ?? item.center?.lon;
-        if (lat === undefined || lon === undefined || !pointInFootprint([lon, lat], frame.polygons))
-          return [];
-        return [
-          {
-            id: `${item.type}/${item.id}`,
-            name: item.tags?.name ?? `Unnamed ${item.tags?.amenity}`,
-            kind: item.tags?.amenity ?? 'facility',
-            coordinates: [lon, lat] as Coordinate,
-          },
-        ];
-      });
+      retrievedAt = catalog.retrieved_at;
     }
+
     const value: Result = {
       assets,
       counts: assets.reduce<Record<string, number>>(
         (counts, a) => ({ ...counts, [a.kind]: (counts[a.kind] ?? 0) + 1 }),
         {},
       ),
-      source: 'OpenStreetMap / Overpass',
-      fetched_at: new Date().toISOString(),
+      source: 'OpenStreetMap / Overpass regional snapshot in Backblaze B2',
+      fetched_at: retrievedAt,
       method:
         'Facility representative point inside native-grid forecast footprint. Community mapping coverage is incomplete; this is potential exposure, not observed damage.',
       population: null,

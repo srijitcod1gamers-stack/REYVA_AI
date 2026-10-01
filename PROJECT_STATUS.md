@@ -8,10 +8,10 @@ The application and migrated data are deployed at https://reyva-ai.pages.dev. Th
 - Contiguous threshold footprints replace generated rings. Area uses spherical cell areas. Overlap/distance association replaces the path that linked unrelated sampled maxima. Missing objects show no polygon and zero area at that time.
 - The historical explorer exposes 12 prepared NOAA reforecast / CHIRPS cases, with actual initialization and verification dates. These are 96-hour rainfall verification windows, not full cyclone reconstructions.
 - Downscaling lab shows coarse forecasts, CHIRPS land observations, interpolation and measured model scores. Observation and interpolation layers are clearly distinguished from AI predictions.
-- Impact intelligence exports footprint GeoJSON and queries mapped hospitals, clinics, schools and fire stations inside it. Facility representative-point checks use OpenStreetMap / Overpass; mapping completeness and observed damage are not inferred. Population totals remain unavailable.
+- Impact intelligence exports footprint GeoJSON and finds mapped hospitals, clinics, schools and fire stations inside it. Facility representative-point checks use a regional OpenStreetMap / Overpass snapshot stored in B2; mapping completeness and observed damage are not inferred. Population totals remain unavailable.
 - Private B2 migration contains 953 objects, including 921 prepared raw/artifact files, about 1.044 GB. Five representative remote checksums were verified, including trained weights. Local originals are retained.
 - D1 has the dataset registry and current forecast metadata, alongside events, alerts and trajectories.
-- GitHub Actions has a six-hour NOAA refresh workflow, encrypted B2 secrets and atomic publication. It publishes dataset pointers after referenced grids. Cycles older than 36 hours are rejected instead of displayed as current.
+- GitHub Actions has a six-hour NOAA refresh workflow, encrypted B2 secrets and atomic publication. Its first cloud run completed successfully and advanced production from the 06Z to the 12Z October 1 cycle. A separate weekly workflow refreshes the facility snapshot. It publishes dataset pointers after referenced grids. Cycles older than 36 hours are rejected instead of displayed as current.
 
 ## Model release result
 
@@ -29,10 +29,12 @@ The remaining work is scientific: expand independent extreme-event and lead-time
 
 ## Verification and operation
 
-Production API responses and all five pages were checked against the migrated datasets. TypeScript build, Worker typecheck, formatting, seven unit tests, sixteen Python tests and four browser tests passed. Windows Playwright preview teardown required terminating only its preview process after the tests completed.
+Production API responses and all five pages were checked against the migrated datasets. TypeScript build, Worker typecheck, formatting, nine unit tests, sixteen Python tests and four browser tests passed. Windows Playwright preview teardown required terminating only its preview process after the tests completed.
 
 Run locally: `npm.cmd run dev:all`. API mode needs the B2 settings in `cloudflare/.dev.vars`. Refresh and publish a native cycle: `npm.cmd run ml:refresh`. Publish prepared data and model reports: `npm.cmd run ml:publish`. Secrets are excluded from Git and browser variables.
 
 To inspect the changes, open the deployed site and use Ctrl+F5. For a live-cycle check, compare forecast initialization and valid time in the header, or inspect `/api/health`. Historical cases and model reports are available independently of a live forecast outage.
 
 Facility source documentation: https://wiki.openstreetmap.org/wiki/Overpass_API#Public_Overpass_API_instances
+
+CI dependency repair: event partitioning lives in the lightweight validation module, so data-validation checks no longer import PyTorch. Native publication also refuses to replace a newer remote forecast cycle with older local data.
