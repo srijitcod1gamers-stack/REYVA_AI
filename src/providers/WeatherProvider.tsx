@@ -299,7 +299,7 @@ export function WeatherProvider({ children }: { children: ReactNode }) {
       <main className="boot-screen">
         <img src="/favicon.svg" width="52" height="52" alt="" />
         <h1>
-          Weather Intelligence <span>AI</span>
+          REYVA <span>AI</span>
         </h1>
         {error ? (
           <>

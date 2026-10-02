@@ -334,7 +334,7 @@ export default function MapCanvas({
       <div
         ref={container}
         className="maplibre-container"
-        aria-label="Interactive weather intelligence map"
+        aria-label="Interactive REYVA AI weather map"
       />
       {!compact && w.selected.provenance.kind === 'simulated' && (
         <WindField map={map} center={w.frame.centroid} enabled={w.layers.has('wind')} />

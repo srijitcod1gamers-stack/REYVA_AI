@@ -37,11 +37,11 @@ export function AppShell({ children }: { children: ReactNode }) {
   return (
     <div className="app-shell">
       <header className="command-header">
-        <NavLink to="/" className="brand" aria-label="Weather Intelligence AI home">
+        <NavLink to="/" className="brand" aria-label="REYVA AI home">
           <img src="/favicon.svg" alt="" />
           <span>
             <strong>
-              WEATHER INTELLIGENCE<span className="brand-ai">AI</span>
+              REYVA<span className="brand-ai">AI</span>
             </strong>
             <small>SEE THE SIGNAL. ANTICIPATE THE IMPACT.</small>
           </span>

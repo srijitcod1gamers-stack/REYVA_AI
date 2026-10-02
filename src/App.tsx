@@ -17,10 +17,12 @@ export default function App() {
     return (
       <div className="app-shell">
         <header className="command-header">
-          <NavLink to="/" className="brand">
+          <NavLink to="/" className="brand" aria-label="REYVA AI home">
             <img src="/favicon.svg" alt="" />
             <span>
-              <strong>WEATHER INTELLIGENCE AI</strong>
+              <strong>
+                REYVA<span className="brand-ai">AI</span>
+              </strong>
               <small>REAL FORECASTS. MEASURED VALIDATION.</small>
             </span>
           </NavLink>

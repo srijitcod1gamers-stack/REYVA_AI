@@ -14,7 +14,7 @@ from fastapi import Depends, FastAPI, Header, HTTPException, Query
 from .data import open_field, precipitation_mm, valid_time
 from .model import generate
 
-app = FastAPI(title="Weather Intelligence ML", docs_url=None, redoc_url=None)
+app = FastAPI(title="REYVA AI ML", docs_url=None, redoc_url=None)
 
 
 def authorize(x_internal_key: str | None = Header(default=None)):

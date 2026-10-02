@@ -1,4 +1,4 @@
-# Weather Intelligence AI
+# REYVA AI
 
 An SIH weather screening and verification application with a React dashboard, a TypeScript Cloudflare Worker API, D1 metadata and private Backblaze B2 datasets. Production reads native NOAA GEFS 0.25-degree grids over 68-98E / 6-36N, with rainfall, gust and pressure fields at daily lead times from day 3 to day 10. Contiguous threshold cells form forecast objects; overlap and distance associate them through time. Footprint area is calculated from spherical cell areas.
 
